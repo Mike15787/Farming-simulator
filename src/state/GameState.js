@@ -6,9 +6,9 @@
 //  - 田地用一維陣列(index = y * MAP_W + x),格子地圖天生適合索引存取,
 //    效能與序列化都單純。
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
-import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel } from '../config.js';
+import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS } from '../config.js';
 
-export const SAVE_VERSION = 2; // v2:玩家座標改為像素(自由移動)。v1 存檔由 main.js 遷移。
+export const SAVE_VERSION = 3; // v2:像素座標。v3:加入市場供給與 NPC 農夫。由 main.js 遷移舊檔。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -34,6 +34,20 @@ export function buildTiles() {
   return tiles;
 }
 
+// 市場供給:每作物初始庫存 = 其需求量(供需平衡 → 起手價 = 基準價)。
+export function buildMarket() {
+  const supply = {};
+  for (const id in ITEMS) {
+    if (ITEMS[id].demand) supply[id] = ITEMS[id].demand;
+  }
+  return { supply };
+}
+
+// NPC 農夫的「動態狀態」(靜態定義在 config.FARMER_DEFS;這裡只存會變動的進度與財富)。
+export function buildFarmers() {
+  return FARMER_DEFS.map((f) => ({ id: f.id, step: 0, daysIntoCrop: 0, money: 0 }));
+}
+
 // 開新局的預設狀態。
 export function createDefaultState() {
   return {
@@ -48,6 +62,8 @@ export function createDefaultState() {
     inventory: [{ id: 'tomato_seed', qty: 5 }], // 物品堆疊:同 id 累加數量
     selectedSlot: 0,
     quests: { tomatoQuest: 'not_started' },
+    market: buildMarket(), // { supply: { cropId: 數量 } }
+    farmers: buildFarmers(), // NPC 農夫動態狀態
   };
 }
 

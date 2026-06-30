@@ -9,9 +9,10 @@ import { GameState } from '../state/GameState.js';
 import { itemName, itemColor } from '../systems/InventorySystem.js';
 import { Runtime } from '../runtime.js';
 
-const SLOT = 36;
-const GAP = 6;
-const MAX_SLOTS = 10;
+const SLOT = 32;
+const GAP = 5;
+const MAX_SLOTS = 9; // 縮小格子,容納較多種子,且不與右側動作按鈕重疊
+const START_X = 6;
 const BAR_Y = MAP_H * TILE; // 480:UI 列起點
 
 const BTN = { w: 96, h: 44, x: GAME_W - 96 - 12, y: BAR_Y + 20 }; // 動作按鈕矩形
@@ -74,6 +75,7 @@ export default class UIScene extends Phaser.Scene {
   }
 
   onPointer(p) {
+    if (Runtime.shopActive) return; // 買賣面板開啟中:點擊交給 ShopScene
     const x = p.x;
     const y = p.y;
     // 動作按鈕
@@ -83,10 +85,9 @@ export default class UIScene extends Phaser.Scene {
     }
     // 背包格選取
     const s = GameState.data;
-    const startX = 8;
     const sy = BAR_Y + 26;
-    for (let i = 0; i < s.inventory.length; i++) {
-      const sx = startX + i * (SLOT + GAP);
+    for (let i = 0; i < Math.min(MAX_SLOTS, s.inventory.length); i++) {
+      const sx = START_X + i * (SLOT + GAP);
       if (x >= sx && x <= sx + SLOT && y >= sy && y <= sy + SLOT) {
         s.selectedSlot = i;
         return;
@@ -161,10 +162,9 @@ export default class UIScene extends Phaser.Scene {
     g.fillRect(0, BAR_Y, GAME_W, UI_H);
 
     // 背包格子
-    const startX = 8;
     const sy = BAR_Y + 26;
     for (let i = 0; i < MAX_SLOTS; i++) {
-      const sx = startX + i * (SLOT + GAP);
+      const sx = START_X + i * (SLOT + GAP);
       if (i >= s.inventory.length) {
         this.qtyTexts[i].setVisible(false);
         continue;
@@ -192,8 +192,8 @@ export default class UIScene extends Phaser.Scene {
   }
 
   drawActionButton(g) {
-    // 只有在戶外農場(或對話中)才顯示動作按鈕;室內沒有耕作。
-    const show = Runtime.dialogActive || GameState.data.currentScene === 'farm';
+    // 只有在戶外農場(或對話中)才顯示動作按鈕;室內、買賣面板開啟時不顯示。
+    const show = !Runtime.shopActive && (Runtime.dialogActive || GameState.data.currentScene === 'farm');
     this.btnVisible = show;
     if (!show) {
       this.btnText.setVisible(false);

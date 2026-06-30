@@ -4,6 +4,7 @@
 //    要做的事(鋤地/播種/澆水/收割/對話/繼續)與是否可按。
 export const Runtime = {
   dialogActive: false,
+  shopActive: false, // 商店/市場面板開啟中:讓 FarmScene 暫停、UIScene 不吃點擊
   actionLabel: '耕作',
   actionEnabled: false,
 };
