@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self' app:; script-src 'self' app: 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' app: data:;"
+  />
+  <title>種田小遊戲</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #1b1b1b;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <!-- Phaser 以 classic script 載入,提供全域 Phaser;之後的 module 才能引用它。 -->
+  <script src="app://local/node_modules/phaser/dist/phaser.min.js"></script>
+  <!-- 遊戲本體以 ES module 載入(module 預設 defer,會在 Phaser 就緒後執行)。 -->
+  <script type="module" src="app://local/src/main.js"></script>
+</body>
+</html>

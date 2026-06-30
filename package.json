@@ -1,0 +1,17 @@
+{
+  "name": "farm-game",
+  "version": "0.1.0",
+  "description": "色塊風格 2D 種田小遊戲 (Electron + Phaser.js MVP)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.3.1"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  }
+}
