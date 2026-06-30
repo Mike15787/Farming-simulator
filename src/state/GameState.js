@@ -6,7 +6,9 @@
 //  - 田地用一維陣列(index = y * MAP_W + x),格子地圖天生適合索引存取,
 //    效能與序列化都單純。
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
-import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN } from '../config.js';
+import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel } from '../config.js';
+
+export const SAVE_VERSION = 2; // v2:玩家座標改為像素(自由移動)。v1 存檔由 main.js 遷移。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -35,9 +37,11 @@ export function buildTiles() {
 // 開新局的預設狀態。
 export function createDefaultState() {
   return {
+    version: SAVE_VERSION,
     currentScene: 'farm', // 'farm' | 'house' —— 存檔/讀檔時用來還原玩家所在場景
-    player: { x: PLAYER_START.x, y: PLAYER_START.y, facing: PLAYER_START.facing },
-    farmReturn: { x: FARM_RETURN.x, y: FARM_RETURN.y }, // 從室內出來時的落點
+    // 玩家座標為「農場場景」的像素位置(自由移動)。室內固定從入口進場,不讀此值。
+    player: { x: gridToPixel(PLAYER_START.x), y: gridToPixel(PLAYER_START.y), facing: PLAYER_START.facing },
+    farmReturn: { x: FARM_RETURN.x, y: FARM_RETURN.y }, // 從室內出來時的落點(格子座標)
     day: 1,
     money: 0,
     tiles: buildTiles(),

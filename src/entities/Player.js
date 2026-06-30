@@ -1,12 +1,13 @@
-// Player —— 處理鍵盤輸入轉成移動,並維護「面向(facing)」。
+// Player —— 自由 XY 軸移動(像素級),不再卡格子。
 //
 // 設計重點:
-//  - 移動採「格子對齊 + 平滑位移」:每次只走一格,用 tween 過去,移動中不再接受輸入,
-//    手感比逐格瞬移好。
-//  - facing 是互動判定的關鍵輸入(InteractionSystem 要算「面前一格」),所以即使
-//    撞牆走不動,也會更新面向(原地轉身)。
-//  - Player 不持有任何遊戲規則,座標最終由場景在切換/存檔前同步回 GameState。
-import { TILE, COLORS } from '../config.js';
+//  - 位置以像素 (x, y) 表示,每幀依輸入向量移動。對角線會正規化,速度不會變快。
+//  - 碰撞採「分軸 + 方框四角取樣」:先試 X 再試 Y,撞到實心格就退回該軸,
+//    可沿牆滑行、卡角不穿牆。實心與否由場景提供的 solidAt(tileX, tileY) 決定。
+//  - facing 只剩視覺用途(鼻子朝向),由移動向量的主軸推得。互動已改為「對最近目標動作」,
+//    不再依賴面向。
+//  - 玩家的真實座標(像素)在切場景/存檔前由場景同步回 GameState。
+import { TILE, COLORS, PLAYER_SPEED, PLAYER_HALF } from '../config.js';
 
 const DIRS = {
   up: { dx: 0, dy: -1 },
@@ -16,23 +17,21 @@ const DIRS = {
 };
 
 export default class Player {
-  // canEnter(x,y) 由場景提供,決定某格能否進入(地形/邊界/NPC)。
-  constructor(scene, originX, originY, gx, gy, facing, canEnter) {
+  // solidAt(tileX, tileY) => bool:該格是否不可進入(牆/水/界外/NPC)。
+  constructor(scene, originX, originY, px, py, facing, solidAt) {
     this.scene = scene;
     this.originX = originX;
     this.originY = originY;
-    this.gx = gx;
-    this.gy = gy;
+    this.x = px;
+    this.y = py;
     this.facing = facing || 'down';
-    this.canEnter = canEnter;
-    this.moving = false;
-    this.onArrive = null; // 場景可設:每走完一格回呼 (x,y),用來偵測門/床
+    this.solidAt = solidAt;
+    this.speed = PLAYER_SPEED;
+    this.half = PLAYER_HALF;
 
-    // 用 Container 包住「身體」與「面向標記」,移動時整體 tween。
     this.body = scene.add.rectangle(0, 0, 20, 20, COLORS.player).setStrokeStyle(2, 0x0d47a1);
     this.nose = scene.add.rectangle(0, 0, 8, 8, COLORS.playerNose);
-    this.container = scene.add.container(this.px(gx), this.py(gy), [this.body, this.nose]);
-    this.container.setDepth(10);
+    this.container = scene.add.container(px, py, [this.body, this.nose]).setDepth(10);
     this.updateNose();
 
     const kb = scene.input.keyboard;
@@ -45,67 +44,79 @@ export default class Player {
     };
   }
 
-  px(gx) {
-    return this.originX + gx * TILE + TILE / 2;
-  }
-  py(gy) {
-    return this.originY + gy * TILE + TILE / 2;
-  }
-
   updateNose() {
     const d = DIRS[this.facing];
     this.nose.setPosition(d.dx * 11, d.dy * 11);
   }
 
   setFacing(dir) {
-    if (this.facing !== dir) {
+    if (dir && this.facing !== dir) {
       this.facing = dir;
       this.updateNose();
     }
   }
 
-  // 面前一格座標(供互動判定)
-  front() {
-    const d = DIRS[this.facing];
-    return { x: this.gx + d.dx, y: this.gy + d.dy };
+  // 玩家中心所在格
+  tileX() {
+    return Math.floor((this.x - this.originX) / TILE);
+  }
+  tileY() {
+    return Math.floor((this.y - this.originY) / TILE);
+  }
+
+  // 以 (cx,cy) 為中心的方框是否壓到實心格(取四角判定)
+  blocked(cx, cy) {
+    const h = this.half;
+    const pts = [
+      [cx - h, cy - h],
+      [cx + h, cy - h],
+      [cx - h, cy + h],
+      [cx + h, cy + h],
+    ];
+    for (const [bx, by] of pts) {
+      const tx = Math.floor((bx - this.originX) / TILE);
+      const ty = Math.floor((by - this.originY) / TILE);
+      if (this.solidAt(tx, ty)) return true;
+    }
+    return false;
   }
 
   syncToState(state) {
-    state.player.x = this.gx;
-    state.player.y = this.gy;
+    state.player.x = this.x;
+    state.player.y = this.y;
     state.player.facing = this.facing;
   }
 
-  update() {
-    if (this.moving) return;
+  setPosition(px, py) {
+    this.x = px;
+    this.y = py;
+    this.container.setPosition(px, py);
+  }
 
-    let dir = null;
+  update(delta) {
+    let vx = 0;
+    let vy = 0;
     const c = this.cursors;
     const w = this.wasd;
-    if (c.left.isDown || w.left.isDown) dir = 'left';
-    else if (c.right.isDown || w.right.isDown) dir = 'right';
-    else if (c.up.isDown || w.up.isDown) dir = 'up';
-    else if (c.down.isDown || w.down.isDown) dir = 'down';
-    if (!dir) return;
+    if (c.left.isDown || w.left.isDown) vx -= 1;
+    if (c.right.isDown || w.right.isDown) vx += 1;
+    if (c.up.isDown || w.up.isDown) vy -= 1;
+    if (c.down.isDown || w.down.isDown) vy += 1;
+    if (vx === 0 && vy === 0) return;
 
-    this.setFacing(dir); // 先轉身(撞牆也會轉)
-    const d = DIRS[dir];
-    const nx = this.gx + d.dx;
-    const ny = this.gy + d.dy;
-    if (!this.canEnter(nx, ny)) return;
+    const len = Math.hypot(vx, vy); // 對角線正規化
+    vx /= len;
+    vy /= len;
+    const dist = this.speed * (delta / 1000);
 
-    this.moving = true;
-    this.scene.tweens.add({
-      targets: this.container,
-      x: this.px(nx),
-      y: this.py(ny),
-      duration: 110,
-      onComplete: () => {
-        this.gx = nx;
-        this.gy = ny;
-        this.moving = false;
-        if (this.onArrive) this.onArrive(nx, ny);
-      },
-    });
+    const nx = this.x + vx * dist;
+    if (!this.blocked(nx, this.y)) this.x = nx;
+    const ny = this.y + vy * dist;
+    if (!this.blocked(this.x, ny)) this.y = ny;
+    this.container.setPosition(this.x, this.y);
+
+    // 視覺面向:取主軸
+    if (Math.abs(vx) > Math.abs(vy)) this.setFacing(vx < 0 ? 'left' : 'right');
+    else this.setFacing(vy < 0 ? 'up' : 'down');
   }
 }

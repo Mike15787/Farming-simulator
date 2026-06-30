@@ -9,6 +9,15 @@ export const UI_H = 80; // 底部 UI 列高度
 export const GAME_W = MAP_W * TILE; // 480
 export const GAME_H = MAP_H * TILE + UI_H; // 560
 
+export const PLAYER_SPEED = 150; // 自由移動速度(像素/秒)
+export const PLAYER_HALF = 8; // 玩家碰撞方框半徑(像素)
+export const REACH = TILE * 1.8; // 耕作/對話可及距離(像素):動作按鈕只作用於此範圍內最近目標
+
+// 格子座標 → 像素中心
+export function gridToPixel(g) {
+  return g * TILE + TILE / 2;
+}
+
 // 色塊配色(數值為 Phaser 用的 0xRRGGBB)
 export const COLORS = {
   // 戶外地形

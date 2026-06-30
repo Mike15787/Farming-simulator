@@ -1,8 +1,8 @@
-// HouseScene —— 室內房屋場景。
+// HouseScene —— 室內房屋場景(自由移動)。
 //
-// 職責:畫出房屋內部(地板、牆、床、出口門);碰床 → 睡覺換日;碰出口門 → 切回戶外。
+// 職責:畫出房屋內部(地板、牆、床、出口門);走到床格 → 睡覺換日;走到出口門格 → 切回戶外。
 // 房屋是小型靜態地圖(不放進 GameState.tiles,那是農場的 15×15),置中繪製於地圖區域。
-import { TILE, MAP_W, MAP_H, COLORS, HOUSE_MAP, FARM_RETURN } from '../config.js';
+import { TILE, MAP_W, MAP_H, COLORS, HOUSE_MAP, FARM_RETURN, gridToPixel } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
@@ -25,10 +25,11 @@ export default class HouseScene extends Phaser.Scene {
     this.gfx = this.add.graphics().setDepth(0);
     this.drawHouse();
 
-    // 進門後出現在出口門正上方,面向房間內側
+    // 進門後出現在出口門正上方的格子中心,面向房間內側
     this.entry = { x: 4, y: 5 };
-    this.player = new Player(this, this.originX, this.originY, this.entry.x, this.entry.y, 'up', (x, y) => this.canEnter(x, y));
-    this.player.onArrive = (x, y) => this.onArrive(x, y);
+    const px = this.originX + gridToPixel(this.entry.x);
+    const py = this.originY + gridToPixel(this.entry.y);
+    this.player = new Player(this, this.originX, this.originY, px, py, 'up', (tx, ty) => this.solidAt(tx, ty));
     this.sleeping = false;
   }
 
@@ -37,14 +38,8 @@ export default class HouseScene extends Phaser.Scene {
     return HOUSE_MAP[y][x];
   }
 
-  canEnter(x, y) {
-    return this.cell(x, y) !== '#'; // 牆不可走;床/門/地板可走
-  }
-
-  onArrive(x, y) {
-    const c = this.cell(x, y);
-    if (c === 'E') this.leave();
-    else if (c === 'B') this.sleep();
+  solidAt(tx, ty) {
+    return this.cell(tx, ty) === '#'; // 牆不可走;床/門/地板可走
   }
 
   sleep() {
@@ -52,26 +47,30 @@ export default class HouseScene extends Phaser.Scene {
     this.sleeping = true;
     this.cameras.main.flash(500, 0, 0, 0); // 黑色淡入淡出當作睡覺轉場
     TimeSystem.nextDay(GameState.data); // 換日結算 + 自動存檔(作物在農場長大)
-    // 睡醒後把玩家移開床鋪,避免重複觸發
-    this.time.delayedCall(260, () => {
-      this.player.gx = 4;
-      this.player.gy = 2;
-      this.player.container.setPosition(this.player.px(4), this.player.py(2));
+    // 睡醒後把玩家挪離床鋪,避免重複觸發
+    this.time.delayedCall(280, () => {
+      this.player.setPosition(this.originX + gridToPixel(4), this.originY + gridToPixel(3));
       this.player.setFacing('down');
       this.sleeping = false;
     });
   }
 
   leave() {
-    // 真實來源是 GameState:設好玩家落點與場景,FarmScene 會據此重建。
-    GameState.data.player = { x: FARM_RETURN.x, y: FARM_RETURN.y, facing: 'down' };
+    // 真實來源是 GameState:設好玩家像素落點與場景,FarmScene 會據此重建。
+    GameState.data.player = { x: gridToPixel(FARM_RETURN.x), y: gridToPixel(FARM_RETURN.y), facing: 'down' };
     GameState.data.currentScene = 'farm';
     SaveManager.save(GameState.data);
     this.scene.start('FarmScene');
   }
 
-  update() {
-    if (!Runtime.dialogActive) this.player.update();
+  update(time, delta) {
+    if (Runtime.dialogActive) return;
+    this.player.update(delta);
+    if (this.sleeping) return;
+    // 依玩家所在格觸發床 / 出口
+    const c = this.cell(this.player.tileX(), this.player.tileY());
+    if (c === 'E') this.leave();
+    else if (c === 'B') this.sleep();
   }
 
   drawHouse() {

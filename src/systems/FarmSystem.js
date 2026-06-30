@@ -51,4 +51,20 @@ export const FarmSystem = {
 
     return { ok: false, reason: 'already_watered' };
   },
+
+  // 不改變狀態,只回報「現在對這格按動作鍵會做什麼」:'till'|'plant'|'water'|'harvest'|null。
+  // 場景用它在玩家附近找「最近一個有事可做的格子」當目標。判定須與 actOnTile 一致。
+  canActOnTile(state, x, y, selected) {
+    if (!inBounds(x, y)) return null;
+    const t = state.tiles[idx(x, y)];
+    if (!t || t.terrain !== 'soil') return null;
+    if (!t.tilled) return 'till';
+    if (!t.crop) {
+      const hasSeed = selected && typeof selected.id === 'string' && selected.id.endsWith('_seed') && selected.qty > 0;
+      return hasSeed ? 'plant' : null;
+    }
+    if (t.crop.stage >= MAX_STAGE) return 'harvest';
+    if (!t.crop.watered) return 'water';
+    return null;
+  },
 };
