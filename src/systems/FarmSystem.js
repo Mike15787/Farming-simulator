@@ -19,6 +19,14 @@ export const FarmSystem = {
     const t = state.tiles[idx(x, y)];
     if (!t || t.terrain !== 'soil') return { ok: false };
 
+    // 0) 手持棚子 → 在此格搭棚(防颱;不擋雨)。棚子是專用工具,選取時只做搭棚。
+    if (selected && selected.id === 'canopy_kit' && selected.qty > 0) {
+      if (t.canopy) return { ok: false, reason: 'has_canopy' };
+      t.canopy = true;
+      InventorySystem.removeItem(state, 'canopy_kit', 1);
+      return { ok: true, action: 'canopy' };
+    }
+
     // 1) 可耕地未翻土 → 翻土
     if (!t.tilled) {
       t.tilled = true;
@@ -58,6 +66,7 @@ export const FarmSystem = {
     if (!inBounds(x, y)) return null;
     const t = state.tiles[idx(x, y)];
     if (!t || t.terrain !== 'soil') return null;
+    if (selected && selected.id === 'canopy_kit' && selected.qty > 0) return t.canopy ? null : 'canopy';
     if (!t.tilled) return 'till';
     if (!t.crop) {
       const hasSeed = selected && typeof selected.id === 'string' && selected.id.endsWith('_seed') && selected.qty > 0;

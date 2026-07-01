@@ -18,6 +18,38 @@ export function gridToPixel(g) {
   return g * TILE + TILE / 2;
 }
 
+// ── 日期 / 季節 ───────────────────────────────────────────────
+// 遊戲以一個 day 計數器(1 起算)推進時間;真實日期由「起始日 + (day-1) 天」推導,不另存存檔。
+export const START_DATE = { year: 827, month: 11, day: 9 }; // day=1 對應的日期
+export const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; // 各月天數(忽略閏年,2 月固定 28)
+
+// day 計數器 → { year, month, day } 真實日期。
+export function dateForDay(day) {
+  let y = START_DATE.year;
+  let m = START_DATE.month; // 1..12
+  let d = START_DATE.day + (day - 1);
+  while (d > MONTH_DAYS[m - 1]) {
+    d -= MONTH_DAYS[m - 1];
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return { year: y, month: m, day: d };
+}
+
+// 日期 → 顯示字串「827年11月9日」。
+export function formatDate(date) {
+  return date.year + '年' + date.month + '月' + date.day + '日';
+}
+
+// 季節:每 3 個月一季。冬(11,12,1)/春(2,3,4)/夏(5,6,7)/秋(8,9,10)。回傳季節 id。
+export function seasonForMonth(month) {
+  if (month === 11 || month === 12 || month === 1) return 'winter';
+  if (month >= 2 && month <= 4) return 'spring';
+  if (month >= 5 && month <= 7) return 'summer';
+  return 'autumn';
+}
+export const SEASON_NAME = { winter: '冬', spring: '春', summer: '夏', autumn: '秋' };
+
 // 色塊配色(數值為 Phaser 用的 0xRRGGBB)
 export const COLORS = {
   // 戶外地形
@@ -40,6 +72,7 @@ export const COLORS = {
   shop: 0x5c6bc0, // 商店色塊
   market: 0x26a69a, // 市場色塊
   rank: 0xb8860b, // 排行榜公佈欄色塊(暗金)
+  weatherBoard: 0x00acc1, // 天氣預報布告欄色塊(青)
   // 作物
   cropStalk: 0x43a047,
   seedDot: 0x5d4037,
@@ -110,6 +143,8 @@ export const ITEMS = {
   corn_seed: { name: '玉米種子', color: 0xfff176, buy: 25 },
   pumpkin_seed: { name: '南瓜種子', color: 0xffab40, buy: 40 },
   cabbage_seed: { name: '高麗菜種子', color: 0xc5e1a5, buy: 22 },
+  // 防災道具:棚子(逐格搭建擋颱風;不是種子,不可播種)
+  canopy_kit: { name: '棚子', color: 0x8d6e63, buy: 40 },
   // 作物(市場收購):sell=基準價,demand=每日需求量
   tomato: { name: '番茄', color: 0xe53935, sell: 30, demand: 12 },
   carrot: { name: '胡蘿蔔', color: 0xfb8c00, sell: 38, demand: 10 },
@@ -119,8 +154,8 @@ export const ITEMS = {
   cabbage: { name: '高麗菜', color: 0x66bb6a, sell: 45, demand: 9 },
 };
 
-// 商店上架的種子(新增的 5 種蔬菜)。
-export const SHOP_STOCK = ['carrot_seed', 'potato_seed', 'corn_seed', 'pumpkin_seed', 'cabbage_seed'];
+// 商店上架的商品(新增的 5 種蔬菜種子 + 防災棚子)。
+export const SHOP_STOCK = ['carrot_seed', 'potato_seed', 'corn_seed', 'pumpkin_seed', 'cabbage_seed', 'canopy_kit'];
 
 // 市場供需定價參數。price = base*(1+factor),factor = clamp(-K*(supply/demand - 1), -MAX_DROP, +MAX_RISE)。
 //   K        : 敏感度(供需偏離 1 時 factor 變化幅度)
@@ -149,6 +184,40 @@ export function festivalFor(day) {
   return FESTIVALS.find((f) => f.day === d) || null;
 }
 
+// ── 天氣 ─────────────────────────────────────────────────────
+// 天氣型別登錄表。autoWater=當天自動幫作物澆水;damaging=會造成農損(目前只有颱風)。
+//   color 用於 FarmScene 天氣覆蓋層;emoji 用於 HUD / 預報。
+export const WEATHER = {
+  sunny: { id: 'sunny', name: '晴天', emoji: '☀️', color: 0xfff59d, autoWater: false, damaging: false },
+  lightRain: { id: 'lightRain', name: '小雨', emoji: '🌦️', color: 0x90caf9, autoWater: true, damaging: false },
+  heavyRain: { id: 'heavyRain', name: '大雨', emoji: '🌧️', color: 0x5c6bc0, autoWater: true, damaging: false },
+  snow: { id: 'snow', name: '下雪', emoji: '❄️', color: 0xe1f5fe, autoWater: false, damaging: false },
+  typhoon: { id: 'typhoon', name: '颱風', emoji: '🌀', color: 0x455a64, autoWater: true, damaging: true },
+};
+
+// 各季節的「一般天氣」加權表(數字為權重,不必加總 100)。颱風不在此表,另由 WEATHER_GEN 疊加。
+// 冬:晴/小雨/雪;春秋:晴/小雨/大雨;夏:晴/小雨/大雨(+颱風)。
+export const SEASON_WEATHER = {
+  winter: { sunny: 50, lightRain: 30, snow: 20 },
+  spring: { sunny: 55, lightRain: 30, heavyRain: 15 },
+  summer: { sunny: 50, lightRain: 30, heavyRain: 20 },
+  autumn: { sunny: 55, lightRain: 30, heavyRain: 15 },
+};
+
+// 天氣生成參數。TYPHOON_CHANCE 只在夏季判定;颱風後 TYPHOON_TAIL_DAYS 天為「颱風尾」(強制降雨)。
+export const WEATHER_GEN = { TYPHOON_CHANCE: 0.08, TYPHOON_TAIL_DAYS: 2 };
+
+// 天氣預報參數。HORIZON=看幾天;DECAY=每遠一天準確率下降;WARN_DAYS=颱風提前幾天預警。
+//   當天準確率=100%,第 k 天 acc = max(0, 1 - DECAY*k);第 14 天 ≈ 30%。
+export const FORECAST = { HORIZON: 14, DECAY: 0.05, WARN_DAYS: 7 };
+
+// 天氣效果參數。颱風:未受保護作物掉 STAGE_LOSS 階、市場供給 ×SUPPLY_SHOCK(自然漲價)、
+//   棚子有 CANOPY_BREAK_CHANCE 機率被吹壞。
+export const WEATHER_FX = { TYPHOON_STAGE_LOSS: 1, TYPHOON_SUPPLY_SHOCK: 0.5, CANOPY_BREAK_CHANCE: 0.25 };
+
+// 魔法結界(全域防颱):施放花費 cost,保護 days 天(期間全農場免疫颱風)。
+export const BARRIER = { cost: 300, days: 3 };
+
 // NPC 農夫定義(模擬農場)。各自有固定種植流程 routine(作物 id 循環),每 growDays 天收成 yield 個,
 // 產出灌入市場供給並換成自己的財富(排行榜)。farmer 本人以彩色方塊站在 pos(草地格,可對話看狀態)。
 export const FARMER_DEFS = [
@@ -158,3 +227,4 @@ export const FARMER_DEFS = [
 ];
 
 export const RANK_POS = { x: 11, y: 2 }; // 排行榜公佈欄色塊
+export const WEATHER_POS = { x: 13, y: 2 }; // 天氣預報布告欄色塊

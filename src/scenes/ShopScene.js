@@ -1,15 +1,17 @@
 // ShopScene —— 商店 / 市場 / 排行榜 的模態面板(疊在最上層)。
 //
-// 三種模式:mode='shop' 買種子;mode='market' 賣作物(動態價);mode='rank' 看財富排行榜(唯讀)。
+// 四種模式:mode='shop' 買種子;mode='market' 賣作物(動態價);mode='rank' 看財富排行榜(唯讀);
+//           mode='forecast' 看 14 天天氣預報 + 施放魔法結界(唯讀 + 一顆按鈕)。
 // 面板蓋住地圖區(留下底部 UI 列可見,方便看金錢),按 Esc 或「關閉」鈕離開。
-// 本場景只負責畫面與點擊,交易交給 ShopSystem、價格走 MarketSystem。開啟期間 Runtime.shopActive=true,
-// 讓 FarmScene 暫停、UIScene 不吃點擊。
-import { GAME_W, MAP_H, TILE, COLORS, SHOP_STOCK, ITEMS, festivalFor } from '../config.js';
+// 本場景只負責畫面與點擊,交易交給 ShopSystem、價格走 MarketSystem、預報走 WeatherSystem。開啟期間
+// Runtime.shopActive=true,讓 FarmScene 暫停、UIScene 不吃點擊。
+import { GAME_W, MAP_H, TILE, COLORS, SHOP_STOCK, ITEMS, festivalFor, WEATHER, BARRIER } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { ShopSystem, buyPrice, isSellable } from '../systems/ShopSystem.js';
 import { MarketSystem, basePrice } from '../systems/MarketSystem.js';
 import { FarmerSystem } from '../systems/FarmerSystem.js';
+import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { itemName } from '../systems/InventorySystem.js';
 import { Runtime } from '../runtime.js';
 
@@ -26,7 +28,7 @@ export default class ShopScene extends Phaser.Scene {
   }
 
   init(data) {
-    this.mode = (data && data.mode) || 'shop'; // 'shop' | 'market' | 'rank'
+    this.mode = (data && data.mode) || 'shop'; // 'shop' | 'market' | 'rank' | 'forecast'
   }
 
   create() {
@@ -76,6 +78,10 @@ export default class ShopScene extends Phaser.Scene {
   buildRows() {
     this.rowObjs.forEach((o) => o.destroy());
     this.rowObjs = [];
+    if (this.mode === 'forecast') {
+      this.buildForecastRows();
+      return;
+    }
     this.rows = this.computeRows();
 
     const right = PANEL.x + PANEL.w - 16;
@@ -118,6 +124,34 @@ export default class ShopScene extends Phaser.Scene {
     });
   }
 
+  // 天氣預報:今天 + 未來 13 天(共 14 天),每列日期 + 上午/下午天氣 + 準確率;底部施放結界。
+  buildForecastRows() {
+    this.rows = [{ buttons: [] }];
+    const s = GameState.data;
+    const fc = WeatherSystem.forecast(s);
+    const PITCH = 21;
+    const N = 14;
+    for (let i = 0; i < N && i < fc.length; i++) {
+      const e = fc[i];
+      const y = ROW_TOP + i * PITCH;
+      const md = (e.offset === 0 ? '今 ' : '') + e.date.month + '/' + e.date.day;
+      const label =
+        md.padEnd(7, ' ') + ' 上午' + WEATHER[e.am].emoji + ' 下午' + WEATHER[e.pm].emoji + '  ' + Math.round(e.acc * 100) + '%' + (e.typhoonWarning ? '  🌀颱風警報' : '');
+      const color = e.typhoonWarning ? '#ff7043' : e.offset === 0 ? '#ffffff' : '#cfd8dc';
+      this.rowObjs.push(this.add.text(PANEL.x + 16, y, label, { fontFamily: 'monospace', fontSize: '13px', color }).setDepth(2));
+    }
+    // 底部:魔法結界狀態 / 施放按鈕
+    const by = PANEL.y + PANEL.h - 60;
+    if (s.barrierDays > 0) {
+      this.rowObjs.push(
+        this.add.text(PANEL.x + 16, by + 8, '🛡️ 魔法結界生效中(剩 ' + s.barrierDays + ' 天,全農場免疫颱風)', { fontFamily: 'sans-serif', fontSize: '13px', color: '#b39ddb' }).setDepth(2)
+      );
+    } else {
+      const label = '🛡️ 施放魔法結界  -$' + BARRIER.cost + '(' + BARRIER.days + ' 天)';
+      this.rows[0].buttons.push(this.makeButton(PANEL.x + 16, by, PANEL.w - 32, 34, label, 0x5e35b1, { type: 'barrier' }));
+    }
+  }
+
   makeButton(x, y, w, h, label, color, action) {
     const r = this.add.rectangle(x, y, w, h, color).setOrigin(0, 0).setStrokeStyle(1, 0xffffff, 0.5).setDepth(2);
     const t = this.add.text(x + w / 2, y + h / 2, label, { fontFamily: 'sans-serif', fontSize: '13px', color: '#ffffff' }).setOrigin(0.5).setDepth(3);
@@ -157,6 +191,14 @@ export default class ShopScene extends Phaser.Scene {
     } else if (a.type === 'sell') {
       const res = ShopSystem.sell(s, a.id, a.qty);
       this.message = res.ok ? '已賣出 ' + itemName(a.id) + ' ×' + res.sold + '(+$' + res.earned + ')' : '沒有可賣的';
+    } else if (a.type === 'barrier') {
+      if (s.barrierDays > 0) this.message = '結界已在生效中';
+      else if (s.money < BARRIER.cost) this.message = '金錢不足,無法施放結界!';
+      else {
+        s.money -= BARRIER.cost;
+        s.barrierDays = BARRIER.days;
+        this.message = '已施放魔法結界(' + BARRIER.days + ' 天,全農場免疫颱風)!';
+      }
     }
     SaveManager.save(s);
     this.buildRows(); // 背包/金錢已變,重建列
@@ -179,12 +221,24 @@ export default class ShopScene extends Phaser.Scene {
     this.msgText
       .setText(fest && !this.message ? fest.emoji + ' ' + fest.name + ' — ' + ITEMS[fest.crop].name + '需求暴增,趁現在賣!' : this.message)
       .setColor(fest && !this.message ? '#ffca28' : '#90caf9');
-    this.title.setText(this.mode === 'shop' ? '🛒 商店 — 購買種子' : this.mode === 'market' ? '🏪 市場 — 販售作物(價格隨供需浮動)' : '🏆 排行榜 — 傳說中的農夫');
+    const TITLE = {
+      shop: '🛒 商店 — 購買種子 / 棚子',
+      market: '🏪 市場 — 販售作物(價格隨供需浮動)',
+      rank: '🏆 排行榜 — 傳說中的農夫',
+      forecast: '📋 天氣預報 — 未來 14 天(越遠越不準)',
+    };
+    this.title.setText(TITLE[this.mode] || TITLE.shop);
     this.draw();
   }
 
   panelColor() {
-    return this.mode === 'shop' ? COLORS.shop : this.mode === 'market' ? COLORS.market : COLORS.rank;
+    return this.mode === 'shop'
+      ? COLORS.shop
+      : this.mode === 'market'
+      ? COLORS.market
+      : this.mode === 'forecast'
+      ? COLORS.weatherBoard
+      : COLORS.rank;
   }
 
   draw() {
@@ -219,7 +273,8 @@ export default class ShopScene extends Phaser.Scene {
     }
     // 底部操作提示
     if (!this._hint) {
-      const hint = this.mode === 'rank' ? 'Esc 或 ✕ 關閉' : '點按鈕交易 · Esc 或 ✕ 關閉';
+      const HINT = { rank: 'Esc 或 ✕ 關閉', forecast: '施放結界防颱 · Esc 或 ✕ 關閉' };
+      const hint = HINT[this.mode] || '點按鈕交易 · Esc 或 ✕ 關閉';
       this._hint = this.add.text(PANEL.x + 16, PANEL.y + PANEL.h - 22, hint, { fontFamily: 'monospace', fontSize: '11px', color: '#78909c' }).setDepth(2);
     }
   }

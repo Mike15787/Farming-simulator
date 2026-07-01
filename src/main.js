@@ -1,7 +1,7 @@
 // Phaser 遊戲初始化 —— 渲染行程入口。
 // 流程:讀存檔(沒有就開新局)→ 建立 Phaser.Game → 由 BootScene 決定進入哪個場景。
 import { GAME_W, GAME_H, MAP_W, MAP_H, gridToPixel } from './config.js';
-import { GameState, createDefaultState, SAVE_VERSION, buildMarket, buildFarmers } from './state/GameState.js';
+import { GameState, createDefaultState, SAVE_VERSION, buildMarket, buildFarmers, buildWeather } from './state/GameState.js';
 import { SaveManager } from './state/SaveManager.js';
 import { Runtime } from './runtime.js';
 import BootScene from './scenes/BootScene.js';
@@ -13,6 +13,7 @@ import ShopScene from './scenes/ShopScene.js';
 // 舊存檔遷移:
 //   v1→v2:玩家座標由「格子」改為「像素」。
 //   v2→v3:加入市場供給與 NPC 農夫(舊檔沒有就補預設)。
+//   v3→v4:加入天氣種子與魔法結界天數(舊檔沒有就補預設;tile.canopy 缺值靠讀取端容錯)。
 // 其餘欄位(tiles/inventory/quests)皆相容。
 function migrate(s) {
   if (!s || s.version === SAVE_VERSION) return s;
@@ -22,6 +23,8 @@ function migrate(s) {
   }
   if (!s.market) s.market = buildMarket(); // v2→v3
   if (!s.farmers) s.farmers = buildFarmers();
+  if (!s.weather) s.weather = buildWeather(); // v3→v4
+  if (s.barrierDays == null) s.barrierDays = 0;
   s.version = SAVE_VERSION;
   return s;
 }

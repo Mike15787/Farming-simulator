@@ -8,7 +8,7 @@
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
 import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS } from '../config.js';
 
-export const SAVE_VERSION = 3; // v2:像素座標。v3:加入市場供給與 NPC 農夫。由 main.js 遷移舊檔。
+export const SAVE_VERSION = 4; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。由 main.js 遷移舊檔。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -28,7 +28,7 @@ export function buildTiles() {
     const row = FARM_MAP[y];
     for (let x = 0; x < MAP_W; x++) {
       const terrain = CHAR_TERRAIN[row[x]] || 'grass';
-      tiles.push({ terrain, tilled: false, crop: null });
+      tiles.push({ terrain, tilled: false, crop: null, canopy: false });
     }
   }
   return tiles;
@@ -48,6 +48,11 @@ export function buildFarmers() {
   return FARMER_DEFS.map((f) => ({ id: f.id, step: 0, daysIntoCrop: 0, money: 0 }));
 }
 
+// 天氣:只存一個種子,天氣/預報全部由 seed + 日期 交給 WeatherSystem 推導(不存每日天氣)。
+export function buildWeather() {
+  return { seed: (Math.random() * 0x7fffffff) | 0 };
+}
+
 // 開新局的預設狀態。
 export function createDefaultState() {
   return {
@@ -64,6 +69,8 @@ export function createDefaultState() {
     quests: { tomatoQuest: 'not_started' },
     market: buildMarket(), // { supply: { cropId: 數量 } }
     farmers: buildFarmers(), // NPC 農夫動態狀態
+    weather: buildWeather(), // { seed } —— 天氣由 seed + 日期推導
+    barrierDays: 0, // 全域魔法結界剩餘天數(>0 期間全農場免疫颱風)
   };
 }
 

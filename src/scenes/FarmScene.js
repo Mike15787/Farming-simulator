@@ -6,7 +6,7 @@
 //   - 任務 NPC、競爭農夫(對話 / 查看狀態)
 // 取其中離玩家最近者當目標並高亮,按動作鍵(空白/E)或點 UI 動作按鈕即執行。
 // 走到門格 → 進室內(碰觸)。面板開啟時(Runtime.shopActive)本場景暫停。
-import { TILE, MAP_W, MAP_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, REACH, ITEMS, FARMER_DEFS } from '../config.js';
+import { TILE, MAP_W, MAP_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, REACH, ITEMS, FARMER_DEFS, WEATHER } from '../config.js';
 import { GameState, idx, inBounds } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { FarmSystem, MAX_STAGE } from '../systems/FarmSystem.js';
@@ -14,11 +14,13 @@ import { QuestSystem } from '../systems/QuestSystem.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { FarmerSystem } from '../systems/FarmerSystem.js';
 import { MarketSystem } from '../systems/MarketSystem.js';
+import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { Runtime } from '../runtime.js';
 import Player from '../entities/Player.js';
 import NPC from '../entities/NPC.js';
 
-const ACTION_LABEL = { till: '鋤地', plant: '播種', water: '澆水', harvest: '收割' };
+const ACTION_LABEL = { till: '鋤地', plant: '播種', water: '澆水', harvest: '收割', canopy: '搭棚' };
+const PHASE_MS = 15000; // 天氣覆蓋層「上午→下午」切換的實時秒數(純氣氛)
 
 export default class FarmScene extends Phaser.Scene {
   constructor() {
@@ -33,9 +35,16 @@ export default class FarmScene extends Phaser.Scene {
     this.fieldGfx = this.add.graphics().setDepth(1);
     this.objGfx = this.add.graphics().setDepth(2); // 商店/市場色塊
     this.highlightGfx = this.add.graphics().setDepth(3); // 目標格高亮
+    this.weatherGfx = this.add.graphics().setDepth(4); // 天氣覆蓋層(蓋地圖區)
     this.drawTerrain();
     this.drawField();
     this.drawWorldObjects();
+
+    // 今日天氣(整天不變);上午/下午覆蓋層以計時器輪替(純氣氛,不影響機制)。
+    this.today = WeatherSystem.today(GameState.data);
+    this.weatherPhase = 'am';
+    this.phaseElapsed = 0;
+    this.drawWeather();
 
     this.npc = new NPC(this, this.originX, this.originY);
 
@@ -58,6 +67,7 @@ export default class FarmScene extends Phaser.Scene {
     if (tx === SHOP_POS.x && ty === SHOP_POS.y) return true;
     if (tx === MARKET_POS.x && ty === MARKET_POS.y) return true;
     if (tx === RANK_POS.x && ty === RANK_POS.y) return true;
+    if (tx === WEATHER_POS.x && ty === WEATHER_POS.y) return true;
     if (FARMER_DEFS.some((f) => f.pos.x === tx && f.pos.y === ty)) return true;
     const t = GameState.data.tiles[idx(tx, ty)];
     return t.terrain === 'water' || t.terrain === 'wall';
@@ -120,6 +130,7 @@ export default class FarmScene extends Phaser.Scene {
     consider('shop', SHOP_POS);
     consider('market', MARKET_POS);
     consider('rank', RANK_POS);
+    consider('forecast', WEATHER_POS);
     consider('npc', NPC_POS);
     FARMER_DEFS.forEach((f, i) => consider('farmer', f.pos, { farmerIndex: i }));
 
@@ -142,6 +153,9 @@ export default class FarmScene extends Phaser.Scene {
         break;
       case 'rank':
         this.openShop('rank');
+        break;
+      case 'forecast':
+        this.openShop('forecast');
         break;
       case 'npc': {
         const d = QuestSystem.talk(GameState.data);
@@ -207,6 +221,14 @@ export default class FarmScene extends Phaser.Scene {
     const q = GameState.data.quests.tomatoQuest;
     const canQuest = q === 'not_started' || (q === 'in_progress' && InventorySystem.countItem(GameState.data, 'tomato') >= 3);
     this.npc.setMarker(canQuest);
+
+    // 天氣覆蓋層:上午/下午輪替(純氣氛)。
+    this.phaseElapsed += delta;
+    if (this.phaseElapsed >= PHASE_MS) {
+      this.phaseElapsed = 0;
+      this.weatherPhase = this.weatherPhase === 'am' ? 'pm' : 'am';
+      this.drawWeather();
+    }
   }
 
   updateActionLabel() {
@@ -221,7 +243,7 @@ export default class FarmScene extends Phaser.Scene {
       return;
     }
     const k = this.action.kind;
-    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', npc: '對話', farmer: '攀談' };
+    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', forecast: '看預報', npc: '對話', farmer: '攀談' };
     Runtime.actionLabel = k === 'farm' ? ACTION_LABEL[this.action.op] : LABEL[k];
     Runtime.actionEnabled = true;
   }
@@ -253,6 +275,7 @@ export default class FarmScene extends Phaser.Scene {
     block(SHOP_POS, COLORS.shop, '商');
     block(MARKET_POS, COLORS.market, '市');
     block(RANK_POS, COLORS.rank, '榜');
+    block(WEATHER_POS, COLORS.weatherBoard, '報');
 
     // 競爭農夫:彩色方塊 + 名字標籤
     for (const f of FARMER_DEFS) {
@@ -302,6 +325,46 @@ export default class FarmScene extends Phaser.Scene {
         g.lineStyle(1, 0x000000, 0.12);
         g.strokeRect(x * TILE, y * TILE, TILE, TILE);
         if (t.crop) this.drawCrop(g, x, y, t.crop);
+        if (t.canopy) this.drawCanopy(g, x, y);
+      }
+    }
+  }
+
+  // 棚子:半透明頂蓋 + 兩根支柱,表示這格受保護。
+  drawCanopy(g, x, y) {
+    const px = x * TILE;
+    const py = y * TILE;
+    g.fillStyle(0x6d4c41, 0.35);
+    g.fillRect(px + 2, py + 2, TILE - 4, 6); // 頂蓋
+    g.fillStyle(0x4e342e, 0.5);
+    g.fillRect(px + 3, py + 3, 3, TILE - 6); // 左柱
+    g.fillRect(px + TILE - 6, py + 3, 3, TILE - 6); // 右柱
+  }
+
+  // 天氣覆蓋層:依當前時段(上午/下午)天氣在地圖區疊色 + 降雨/雪粒(晴天不疊)。
+  drawWeather() {
+    const g = this.weatherGfx;
+    g.clear();
+    const id = this.weatherPhase === 'pm' ? this.today.pm : this.today.am;
+    const w = WEATHER[id];
+    if (!w || id === 'sunny') return;
+    const W = MAP_W * TILE;
+    const H = MAP_H * TILE;
+    const alpha = id === 'typhoon' ? 0.32 : id === 'heavyRain' ? 0.2 : id === 'snow' ? 0.16 : 0.12;
+    g.fillStyle(w.color, alpha);
+    g.fillRect(0, 0, W, H);
+    if (id === 'lightRain' || id === 'heavyRain' || id === 'typhoon') {
+      const n = id === 'lightRain' ? 40 : id === 'typhoon' ? 120 : 80;
+      g.lineStyle(1, 0xffffff, id === 'typhoon' ? 0.35 : 0.25);
+      for (let i = 0; i < n; i++) {
+        const rx = (i * 53) % W;
+        const ry = (i * 97) % H;
+        g.lineBetween(rx, ry, rx - 4, ry + 10);
+      }
+    } else if (id === 'snow') {
+      g.fillStyle(0xffffff, 0.7);
+      for (let i = 0; i < 60; i++) {
+        g.fillCircle((i * 61) % W, (i * 89) % H, 1.5);
       }
     }
   }

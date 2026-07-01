@@ -4,9 +4,10 @@
 //  - 動作按鈕:標籤與可按狀態由 FarmScene 透過 Runtime 提供;點下去呼叫 FarmScene.doAction()
 //    (對話中則為「繼續」)。鍵盤空白/E 是等效捷徑。
 //  - 背包格可點選切換,等同數字鍵。
-import { GAME_W, MAP_H, TILE, UI_H, COLORS, festivalFor } from '../config.js';
+import { GAME_W, MAP_H, TILE, UI_H, COLORS, festivalFor, dateForDay, formatDate, WEATHER, FORECAST } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { itemName, itemColor } from '../systems/InventorySystem.js';
+import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { Runtime } from '../runtime.js';
 
 const SLOT = 32;
@@ -156,10 +157,27 @@ export default class UIScene extends Phaser.Scene {
   // ── 每幀刷新 ──────────────────────────────────────────────
   update() {
     const s = GameState.data;
-    this.dayText.setText('第 ' + s.day + ' 天');
+    // 日期 + 今日天氣(上午/下午不同就兩個 emoji 都顯示)
+    const w = WeatherSystem.today(s);
+    const amE = WEATHER[w.am].emoji;
+    const pmE = WEATHER[w.pm].emoji;
+    this.dayText.setText(formatDate(dateForDay(s.day)) + ' ' + (amE === pmE ? amE : amE + pmE));
     this.moneyText.setText('$ ' + s.money);
+
+    // 中央徽章:颱風警報優先於節慶
+    let warnOffset = w.typhoon ? 0 : null;
+    if (warnOffset === null) {
+      const nt = WeatherSystem.nextTyphoonWithin(s, FORECAST.WARN_DAYS);
+      if (nt) warnOffset = nt.offset;
+    }
     const fest = festivalFor(s.day);
-    this.festText.setText(fest ? fest.emoji + ' ' + fest.name + '!' : '');
+    if (warnOffset !== null) {
+      this.festText.setText('⚠️ 颱風警報 ' + (warnOffset === 0 ? '今天!' : warnOffset + '天後')).setColor('#ff7043');
+    } else if (fest) {
+      this.festText.setText(fest.emoji + ' ' + fest.name + '!').setColor('#ffca28');
+    } else {
+      this.festText.setText('');
+    }
 
     const g = this.barGfx;
     g.clear();
