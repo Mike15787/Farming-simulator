@@ -7,4 +7,5 @@ export const Runtime = {
   shopActive: false, // 商店/市場面板開啟中:讓 FarmScene 暫停、UIScene 不吃點擊
   actionLabel: '耕作',
   actionEnabled: false,
+  gameScene: null, // 當前戶外遊戲場景(FarmScene / AreaScene);UIScene 動作按鈕據此分派 doAction()
 };

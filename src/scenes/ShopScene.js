@@ -5,7 +5,7 @@
 // 面板蓋住地圖區(留下底部 UI 列可見,方便看金錢),按 Esc 或「關閉」鈕離開。
 // 本場景只負責畫面與點擊,交易交給 ShopSystem、價格走 MarketSystem、預報走 WeatherSystem。開啟期間
 // Runtime.shopActive=true,讓 FarmScene 暫停、UIScene 不吃點擊。
-import { GAME_W, MAP_H, TILE, COLORS, SHOP_STOCK, ITEMS, festivalFor, WEATHER, BARRIER } from '../config.js';
+import { GAME_W, VIEW_H, COLORS, SHOP_STOCK, ITEMS, festivalFor, WEATHER, BARRIER } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { ShopSystem, buyPrice, isSellable } from '../systems/ShopSystem.js';
@@ -17,7 +17,7 @@ import { Runtime } from '../runtime.js';
 
 const TREND = { up: { sym: '▲', color: '#66bb6a' }, down: { sym: '▼', color: '#ef5350' }, flat: { sym: '＝', color: '#b0bec5' } };
 
-const PANEL = { x: 24, y: 26, w: GAME_W - 48, h: MAP_H * TILE - 52 }; // 蓋住地圖區
+const PANEL = { x: 24, y: 26, w: GAME_W - 48, h: VIEW_H - 52 }; // 蓋住地圖區(視口高)
 const ROW_TOP = PANEL.y + 64;
 const ROW_H = 46;
 const CLOSE = { x: PANEL.x + PANEL.w - 34, y: PANEL.y + 10, w: 24, h: 24 };
@@ -246,7 +246,7 @@ export default class ShopScene extends Phaser.Scene {
     g.clear();
     // 半透明遮罩(只蓋地圖區)
     g.fillStyle(0x000000, 0.45);
-    g.fillRect(0, 0, GAME_W, MAP_H * TILE);
+    g.fillRect(0, 0, GAME_W, VIEW_H);
     // 面板
     g.fillStyle(0x263238, 0.98);
     g.fillRoundedRect(PANEL.x, PANEL.y, PANEL.w, PANEL.h, 12);

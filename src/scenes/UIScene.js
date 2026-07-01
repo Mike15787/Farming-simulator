@@ -4,7 +4,7 @@
 //  - 動作按鈕:標籤與可按狀態由 FarmScene 透過 Runtime 提供;點下去呼叫 FarmScene.doAction()
 //    (對話中則為「繼續」)。鍵盤空白/E 是等效捷徑。
 //  - 背包格可點選切換,等同數字鍵。
-import { GAME_W, MAP_H, TILE, UI_H, COLORS, festivalFor, dateForDay, formatDate, WEATHER, FORECAST } from '../config.js';
+import { GAME_W, VIEW_H, UI_H, COLORS, festivalFor, dateForDay, formatDate, WEATHER, FORECAST } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { itemName, itemColor } from '../systems/InventorySystem.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
@@ -14,7 +14,7 @@ const SLOT = 32;
 const GAP = 5;
 const MAX_SLOTS = 9; // 縮小格子,容納較多種子,且不與右側動作按鈕重疊
 const START_X = 6;
-const BAR_Y = MAP_H * TILE; // 480:UI 列起點
+const BAR_Y = VIEW_H; // 480:UI 列起點(=視口高)
 
 const BTN = { w: 96, h: 44, x: GAME_W - 96 - 12, y: BAR_Y + 20 }; // 動作按鈕矩形
 
@@ -66,7 +66,7 @@ export default class UIScene extends Phaser.Scene {
       .setDepth(6)
       .setVisible(false);
     this.dlgHint = this.add
-      .text(GAME_W - 24, MAP_H * TILE - 30, '▶ 空白鍵 / 按鈕 繼續', { fontFamily: 'monospace', fontSize: '11px', color: '#cfd8dc' })
+      .text(GAME_W - 24, VIEW_H - 30, '▶ 空白鍵 / 按鈕 繼續', { fontFamily: 'monospace', fontSize: '11px', color: '#cfd8dc' })
       .setOrigin(1, 1)
       .setDepth(6)
       .setVisible(false);
@@ -106,8 +106,9 @@ export default class UIScene extends Phaser.Scene {
       this.advanceDialog();
       return;
     }
-    const fs = this.scene.get('FarmScene');
-    if (fs && this.scene.isActive('FarmScene')) fs.doAction();
+    // 分派給當前戶外遊戲場景(FarmScene / AreaScene)。
+    const gs = Runtime.gameScene;
+    if (gs && gs.scene && gs.scene.isActive() && typeof gs.doAction === 'function') gs.doAction();
   }
 
   // ── 對話框 API(供遊戲場景呼叫)──────────────────────────
@@ -140,7 +141,7 @@ export default class UIScene extends Phaser.Scene {
 
   renderDialog() {
     const x = 12;
-    const y = MAP_H * TILE - 120;
+    const y = VIEW_H - 120;
     const w = GAME_W - 24;
     const h = 96;
     const g = this.dlgGfx;
@@ -211,14 +212,16 @@ export default class UIScene extends Phaser.Scene {
 
     const sel = s.inventory[s.selectedSlot];
     this.selText.setText('選取: ' + (sel ? itemName(sel.id) : '無'));
-    this.hintText.setText('方向鍵/WASD 自由移動 · 空白/E 或點按鈕動作 · 點格子切換物品 · 走到門進屋,碰床睡覺');
+    this.hintText.setText('方向鍵/WASD 移動 · 空白/E 動作 · 點格子切物品 · 走到門進屋/碰床睡覺 · 走到通道往城鎮/森林');
 
     this.drawActionButton(g);
   }
 
   drawActionButton(g) {
-    // 只有在戶外農場(或對話中)才顯示動作按鈕;室內、買賣面板開啟時不顯示。
-    const show = !Runtime.shopActive && (Runtime.dialogActive || GameState.data.currentScene === 'farm');
+    // 只有在戶外場景(農場/城鎮/森林)或對話中才顯示動作按鈕;室內、買賣面板開啟時不顯示。
+    const sc = GameState.data.currentScene;
+    const outdoor = sc === 'farm' || sc === 'town' || sc === 'forest';
+    const show = !Runtime.shopActive && (Runtime.dialogActive || outdoor);
     this.btnVisible = show;
     if (!show) {
       this.btnText.setVisible(false);

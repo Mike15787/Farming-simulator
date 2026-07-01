@@ -2,12 +2,17 @@
 // 全部集中於此,方便調整數值與未來換美術(只要改顏色/尺寸,不動邏輯)。
 
 export const TILE = 32; // 每格像素
-export const MAP_W = 15;
-export const MAP_H = 15;
 
+// 視口(相機視窗)尺寸 —— 與「地圖尺寸」解耦。畫布固定這麼大,地圖世界可比它更大(相機捲動)。
 export const UI_H = 80; // 底部 UI 列高度
-export const GAME_W = MAP_W * TILE; // 480
-export const GAME_H = MAP_H * TILE + UI_H; // 560
+export const VIEW_COLS = 15; // 視口寬(格)
+export const VIEW_ROWS = 15; // 視口高(格)
+export const VIEW_W = VIEW_COLS * TILE; // 480:地圖區可視寬
+export const VIEW_H = VIEW_ROWS * TILE; // 480:地圖區可視高
+export const GAME_W = VIEW_W; // 480:畫布寬
+export const GAME_H = VIEW_H + UI_H; // 560:畫布高(地圖區 + UI 列)
+
+// 註:農場地圖尺寸 MAP_W / MAP_H 由 FARM_MAP 推導(見下方 FARM_MAP 之後),不再固定 15。
 
 export const PLAYER_SPEED = 150; // 自由移動速度(像素/秒)
 export const PLAYER_HALF = 8; // 玩家碰撞方框半徑(像素)
@@ -60,11 +65,17 @@ export const COLORS = {
   water: 0x4fc3f7,
   houseWall: 0x9e9e9e, // 戶外房屋外牆
   door: 0xffa000, // 門
+  path: 0xd7c4a1, // 通道格(地圖間往返的關口)
   // 室內
   floor: 0xd7ccc8,
   wallInner: 0x795548,
   bed: 0x3949ab,
   exit: 0xffa000,
+  // 城鎮 / 森林 裝飾地形
+  townGround: 0xbcaaa4, // 城鎮地面(石板/廣場)
+  building: 0x9c6b4f, // 城鎮建物(實心裝飾)
+  tree: 0x2e7d32, // 樹(實心裝飾)
+  forestFloor: 0x558b2f, // 森林地面(深草)
   // 角色 / 建物
   player: 0x1e88e5,
   playerNose: 0xffeb3b,
@@ -90,27 +101,39 @@ export const CHAR_TERRAIN = {
   W: 'water',
   H: 'wall',
   D: 'door',
+  P: 'path', // 通往城鎮的通道關口(可走,觸碰即切換地圖)
 };
 
-// 戶外農場佈局(15×15)。
-// G=草地 S=可耕地 W=水域(邊界) H=房屋牆 D=門
+// 戶外農場佈局(20×20,比一屏 15×15 大 → 相機捲動)。
+// G=草地 S=可耕地 W=水域(邊界) H=房屋牆 D=門 P=通道(往城鎮)
+//   保留原 15×15 的既有座標(房屋、中央田、商店/市場/榜/報、農夫、玩家起點皆不變),
+//   東側新增田 A(cols15-18,rows6-9)、南側新增田 B(cols6-10,rows15-18),東界 (19,10) 為通道 P。
 export const FARM_MAP = [
-  'WWWWWWWWWWWWWWW',
-  'GGGGGGGGGGGGGGG',
-  'GHHHGGGGGGGGGGG',
-  'GHHHGGGGGGGGGGG',
-  'GHDHGGGGGGGGGGG',
-  'GGGGGGGGGGGGGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGSSSSSSGGG',
-  'GGGGGGGGGGGGGGG',
-  'GGGGGGGGGGGGGGG',
-  'WWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWWWWWW',
+  'WGGGGGGGGGGGGGGGGGGW',
+  'WHHHGGGGGGGGGGGGGGGW',
+  'WHHHGGGGGGGGGGGGGGGW',
+  'WHDHGGGGGGGGGGGGGGGW',
+  'WGGGGGGGGGGGGGGGGGGW',
+  'WGGGGGSSSSSSGGGSSSSW',
+  'WGGGGGSSSSSSGGGSSSSW',
+  'WGGGGGSSSSSSGGGSSSSW',
+  'WGGGGGSSSSSSGGGSSSSW',
+  'WGGGGGSSSSSSGGGGGGGP',
+  'WGGGGGSSSSSSGGGGGGGW',
+  'WGGGGGGGGGGGGGGGGGGW',
+  'WGGGGGGGGGGGGGGGGGGW',
+  'WGGGGGGGGGGGGGGGGGGW',
+  'WGGGGGSSSSSGGGGGGGGW',
+  'WGGGGGSSSSSGGGGGGGGW',
+  'WGGGGGSSSSSGGGGGGGGW',
+  'WGGGGGSSSSSGGGGGGGGW',
+  'WWWWWWWWWWWWWWWWWWWW',
 ];
+
+// 農場地圖尺寸由 FARM_MAP 推導 —— 放大農場只要改 FARM_MAP,idx()/inBounds()/繪製迴圈自動跟著變。
+export const MAP_W = FARM_MAP[0].length;
+export const MAP_H = FARM_MAP.length;
 
 // 室內房屋佈局(9×7)。
 // #=牆 .=地板 B=床 E=出口門
@@ -152,6 +175,9 @@ export const ITEMS = {
   corn: { name: '玉米', color: 0xfdd835, sell: 55, demand: 8 },
   pumpkin: { name: '南瓜', color: 0xef6c00, sell: 95, demand: 5 },
   cabbage: { name: '高麗菜', color: 0x66bb6a, sell: 45, demand: 9 },
+  // 森林採集物(非種植,無 _seed;給 sell+demand 使其可在市場販售、接入動態定價)
+  berry: { name: '野莓', color: 0xd81b60, sell: 12, demand: 14 },
+  mushroom: { name: '蘑菇', color: 0xa1502f, sell: 22, demand: 8 },
 };
 
 // 商店上架的商品(新增的 5 種蔬菜種子 + 防災棚子)。
@@ -228,3 +254,78 @@ export const FARMER_DEFS = [
 
 export const RANK_POS = { x: 11, y: 2 }; // 排行榜公佈欄色塊
 export const WEATHER_POS = { x: 13, y: 2 }; // 天氣預報布告欄色塊
+
+// ── 城鎮 / 森林 地圖(資料驅動,由 AreaScene 共用)──────────────
+// 每張:layout=字元格陣列(可大於一屏 → 相機捲動);colors=字元→COLORS 鍵;solid=實心字元集合。
+//   城鎮字元:B=建物 .=地面 R=道路 W=水 P=通道關口。 森林:G=草地 T=樹 W=水 P=通道關口。
+// gatherNodes(森林):可採集節點,不進 layout(疊在草地上繪製)。item=產出物品,respawnDays=隔幾天重生。
+export const AREA_MAPS = {
+  town: {
+    name: '城鎮',
+    colors: { B: 'building', '.': 'townGround', R: 'path', P: 'path', W: 'water', T: 'tree' },
+    solid: 'BWT', // 建物/水/樹不可走;地面/道路/通道可走
+    layout: [
+      'BBBBBBBBBBBBBBBBBBBB',
+      'B..................B',
+      'B..BB....RR....BB..B',
+      'B..BB....RR....BB..B',
+      'B........RR........B',
+      'B..RRRRRRRRRRRRRR..B',
+      'B..R............R..B',
+      'P..R............R..P',
+      'B..R............R..B',
+      'B..RRRRRRRRRRRRRR..B',
+      'B........RR........B',
+      'B..BB....RR....BB..B',
+      'B..BB....RR....BB..B',
+      'B..................B',
+      'BBBBBBBBBBBBBBBBBBBB',
+    ],
+  },
+  forest: {
+    name: '森林',
+    colors: { G: 'forestFloor', T: 'tree', W: 'water', P: 'path' },
+    solid: 'TW', // 樹/水不可走
+    layout: [
+      'TTTTTTTTTTTTTTTTTT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TGGGGGTGGGGGGGGGGT',
+      'TGGGTTGGGGGGWWGGGT',
+      'TGGGGGGGGGGGWWGGGT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TGGGGGGTTGGGGGGGGT',
+      'TGGGGGGTTGGGGGGGGT',
+      'PGGGGGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGTTGGT',
+      'TGGGGGGGGGGGGTTGGT',
+      'TGGGGGTGGGGGGGGGGT',
+      'TGGGGTTGGGGGGGGGGT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGGGGGT',
+      'TTTTTTTTTTTTTTTTTT',
+    ],
+    gatherNodes: [
+      { x: 10, y: 1, item: 'berry', respawnDays: 2 },
+      { x: 14, y: 5, item: 'berry', respawnDays: 2 },
+      { x: 8, y: 15, item: 'berry', respawnDays: 2 },
+      { x: 3, y: 13, item: 'mushroom', respawnDays: 3 },
+      { x: 15, y: 10, item: 'mushroom', respawnDays: 3 },
+    ],
+  },
+};
+
+// 通道關口:走到某地圖的 (x,y) 通道格 → 切到 to 地圖、落在 dest 格(dest 必為非通道格,避免立即彈回)。
+// 拓撲:農場 ⇄ 城鎮 ⇄ 森林(城鎮為樞紐)。
+export const PORTALS = {
+  farm: [{ x: 19, y: 10, to: 'town', dest: { x: 1, y: 7 } }],
+  town: [
+    { x: 0, y: 7, to: 'farm', dest: { x: 18, y: 10 } },
+    { x: 19, y: 7, to: 'forest', dest: { x: 1, y: 8 } },
+  ],
+  forest: [{ x: 0, y: 8, to: 'town', dest: { x: 18, y: 7 } }],
+};
+
+// 地圖 id → 場景 key(BootScene / mapUtils 用)。
+export const SCENE_KEY = { farm: 'FarmScene', house: 'HouseScene', town: 'TownScene', forest: 'ForestScene' };

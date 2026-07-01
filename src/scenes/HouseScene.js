@@ -2,7 +2,7 @@
 //
 // 職責:畫出房屋內部(地板、牆、床、出口門);走到床格 → 睡覺換日;走到出口門格 → 切回戶外。
 // 房屋是小型靜態地圖(不放進 GameState.tiles,那是農場的 15×15),置中繪製於地圖區域。
-import { TILE, MAP_W, MAP_H, COLORS, HOUSE_MAP, FARM_RETURN, gridToPixel } from '../config.js';
+import { TILE, VIEW_W, VIEW_H, COLORS, HOUSE_MAP, FARM_RETURN, gridToPixel } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
@@ -18,9 +18,9 @@ export default class HouseScene extends Phaser.Scene {
   }
 
   create() {
-    // 把房屋置中於 480×480 的地圖區域
-    this.originX = Math.floor((MAP_W * TILE - HOUSE_W * TILE) / 2);
-    this.originY = Math.floor((MAP_H * TILE - HOUSE_H * TILE) / 2);
+    // 把房屋置中於 480×480 的視口(地圖區域)
+    this.originX = Math.floor((VIEW_W - HOUSE_W * TILE) / 2);
+    this.originY = Math.floor((VIEW_H - HOUSE_H * TILE) / 2);
 
     this.gfx = this.add.graphics().setDepth(0);
     this.drawHouse();

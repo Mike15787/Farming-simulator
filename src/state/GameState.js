@@ -8,7 +8,7 @@
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
 import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS } from '../config.js';
 
-export const SAVE_VERSION = 4; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。由 main.js 遷移舊檔。
+export const SAVE_VERSION = 5; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。v5:農場放大 20×20(tiles 重建)+森林採集。由 main.js 遷移舊檔。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -71,6 +71,7 @@ export function createDefaultState() {
     farmers: buildFarmers(), // NPC 農夫動態狀態
     weather: buildWeather(), // { seed } —— 天氣由 seed + 日期推導
     barrierDays: 0, // 全域魔法結界剩餘天數(>0 期間全農場免疫颱風)
+    forest: { gathered: {} }, // 森林採集紀錄:{ "x,y": 採集當天 day };節點在 day - 記錄 >= respawnDays 時重生
   };
 }
 

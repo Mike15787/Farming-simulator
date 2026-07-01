@@ -6,7 +6,7 @@
 //   - 任務 NPC、競爭農夫(對話 / 查看狀態)
 // 取其中離玩家最近者當目標並高亮,按動作鍵(空白/E)或點 UI 動作按鈕即執行。
 // 走到門格 → 進室內(碰觸)。面板開啟時(Runtime.shopActive)本場景暫停。
-import { TILE, MAP_W, MAP_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, REACH, ITEMS, FARMER_DEFS, WEATHER } from '../config.js';
+import { TILE, MAP_W, MAP_H, VIEW_W, VIEW_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, REACH, ITEMS, FARMER_DEFS, WEATHER } from '../config.js';
 import { GameState, idx, inBounds } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { FarmSystem, MAX_STAGE } from '../systems/FarmSystem.js';
@@ -16,6 +16,7 @@ import { FarmerSystem } from '../systems/FarmerSystem.js';
 import { MarketSystem } from '../systems/MarketSystem.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { Runtime } from '../runtime.js';
+import { setupWorldCamera, transitionTo, portalAt } from '../mapUtils.js';
 import Player from '../entities/Player.js';
 import NPC from '../entities/NPC.js';
 
@@ -35,7 +36,8 @@ export default class FarmScene extends Phaser.Scene {
     this.fieldGfx = this.add.graphics().setDepth(1);
     this.objGfx = this.add.graphics().setDepth(2); // 商店/市場色塊
     this.highlightGfx = this.add.graphics().setDepth(3); // 目標格高亮
-    this.weatherGfx = this.add.graphics().setDepth(4); // 天氣覆蓋層(蓋地圖區)
+    // 天氣覆蓋層螢幕固定(不隨相機捲動),只蓋視口區。
+    this.weatherGfx = this.add.graphics().setDepth(4).setScrollFactor(0);
     this.drawTerrain();
     this.drawField();
     this.drawWorldObjects();
@@ -50,6 +52,10 @@ export default class FarmScene extends Phaser.Scene {
 
     const p = GameState.data.player;
     this.player = new Player(this, this.originX, this.originY, p.x, p.y, p.facing, (tx, ty) => this.solidAt(tx, ty));
+
+    // 相機:視口只佔上方地圖區(底部 80px 讓 UIScene 蓋),邊界為整個農場世界,跟隨玩家捲動。
+    setupWorldCamera(this, MAP_W * TILE, MAP_H * TILE, this.player.container);
+    Runtime.gameScene = this; // UIScene 動作按鈕分派用
 
     this.action = null; // { kind:'farm'|'shop'|'market'|'npc', x, y, op? }
 
@@ -212,6 +218,11 @@ export default class FarmScene extends Phaser.Scene {
         this.enterHouse();
         return;
       }
+      const portal = portalAt('farm', ctx, cty); // 走到通道格 → 切到城鎮
+      if (portal) {
+        transitionTo(this, portal.to, portal.dest);
+        return;
+      }
     }
 
     this.computeAction();
@@ -303,6 +314,7 @@ export default class FarmScene extends Phaser.Scene {
         else if (t.terrain === 'water') col = COLORS.water;
         else if (t.terrain === 'wall') col = COLORS.houseWall;
         else if (t.terrain === 'door') col = COLORS.door;
+        else if (t.terrain === 'path') col = COLORS.path;
         g.fillStyle(col, 1);
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
         g.lineStyle(1, 0x000000, 0.08);
@@ -348,8 +360,8 @@ export default class FarmScene extends Phaser.Scene {
     const id = this.weatherPhase === 'pm' ? this.today.pm : this.today.am;
     const w = WEATHER[id];
     if (!w || id === 'sunny') return;
-    const W = MAP_W * TILE;
-    const H = MAP_H * TILE;
+    const W = VIEW_W; // 螢幕固定:只蓋視口
+    const H = VIEW_H;
     const alpha = id === 'typhoon' ? 0.32 : id === 'heavyRain' ? 0.2 : id === 'snow' ? 0.16 : 0.12;
     g.fillStyle(w.color, alpha);
     g.fillRect(0, 0, W, H);
