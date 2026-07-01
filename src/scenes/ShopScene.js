@@ -4,7 +4,7 @@
 // 面板蓋住地圖區(留下底部 UI 列可見,方便看金錢),按 Esc 或「關閉」鈕離開。
 // 本場景只負責畫面與點擊,交易交給 ShopSystem、價格走 MarketSystem。開啟期間 Runtime.shopActive=true,
 // 讓 FarmScene 暫停、UIScene 不吃點擊。
-import { GAME_W, MAP_H, TILE, COLORS, SHOP_STOCK, ITEMS } from '../config.js';
+import { GAME_W, MAP_H, TILE, COLORS, SHOP_STOCK, ITEMS, festivalFor } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { ShopSystem, buyPrice, isSellable } from '../systems/ShopSystem.js';
@@ -57,13 +57,14 @@ export default class ShopScene extends Phaser.Scene {
     if (this.mode === 'rank') {
       return FarmerSystem.ranking(s).map((r, i) => ({ kind: 'rank', rankNo: i + 1, name: r.name, money: r.money, isPlayer: r.isPlayer }));
     }
-    // market:背包中可販售的作物,顯示動態價 + 漲跌
+    // market:背包中可販售的作物,顯示動態價 + 漲跌;節慶當天的熱門作物名稱前加 emoji。
+    const fest = festivalFor(s.day);
     return s.inventory
       .filter((it) => isSellable(it.id) && it.qty > 0)
       .map((it) => ({
         id: it.id,
         kind: 'sell',
-        name: itemName(it.id),
+        name: (fest && fest.crop === it.id ? fest.emoji + ' ' : '') + itemName(it.id),
         color: ITEMS[it.id].color,
         price: MarketSystem.price(s, it.id),
         base: basePrice(it.id),
@@ -173,7 +174,11 @@ export default class ShopScene extends Phaser.Scene {
       return;
     }
     this.moneyText.setText('$ ' + GameState.data.money);
-    this.msgText.setText(this.message);
+    // 市場模式:有節慶時,訊息列顯示節慶橫幅(蓋過空白訊息);其餘沿用交易訊息。
+    const fest = this.mode === 'market' ? festivalFor(GameState.data.day) : null;
+    this.msgText
+      .setText(fest && !this.message ? fest.emoji + ' ' + fest.name + ' — ' + ITEMS[fest.crop].name + '需求暴增,趁現在賣!' : this.message)
+      .setColor(fest && !this.message ? '#ffca28' : '#90caf9');
     this.title.setText(this.mode === 'shop' ? '🛒 商店 — 購買種子' : this.mode === 'market' ? '🏪 市場 — 販售作物(價格隨供需浮動)' : '🏆 排行榜 — 傳說中的農夫');
     this.draw();
   }

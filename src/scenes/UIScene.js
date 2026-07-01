@@ -4,7 +4,7 @@
 //  - 動作按鈕:標籤與可按狀態由 FarmScene 透過 Runtime 提供;點下去呼叫 FarmScene.doAction()
 //    (對話中則為「繼續」)。鍵盤空白/E 是等效捷徑。
 //  - 背包格可點選切換,等同數字鍵。
-import { GAME_W, MAP_H, TILE, UI_H, COLORS } from '../config.js';
+import { GAME_W, MAP_H, TILE, UI_H, COLORS, festivalFor } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { itemName, itemColor } from '../systems/InventorySystem.js';
 import { Runtime } from '../runtime.js';
@@ -26,6 +26,11 @@ export default class UIScene extends Phaser.Scene {
     this.barGfx = this.add.graphics().setDepth(0);
 
     this.dayText = this.add.text(8, 6, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' }).setDepth(2);
+    // 節慶徽章(頂列置中):有節慶才顯示,提醒玩家某作物今天需求暴增。
+    this.festText = this.add
+      .text(GAME_W / 2, 6, '', { fontFamily: 'sans-serif', fontSize: '14px', color: '#ffca28' })
+      .setOrigin(0.5, 0)
+      .setDepth(2);
     this.moneyText = this.add
       .text(GAME_W - 8, 6, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffd54f' })
       .setOrigin(1, 0)
@@ -153,6 +158,8 @@ export default class UIScene extends Phaser.Scene {
     const s = GameState.data;
     this.dayText.setText('第 ' + s.day + ' 天');
     this.moneyText.setText('$ ' + s.money);
+    const fest = festivalFor(s.day);
+    this.festText.setText(fest ? fest.emoji + ' ' + fest.name + '!' : '');
 
     const g = this.barGfx;
     g.clear();

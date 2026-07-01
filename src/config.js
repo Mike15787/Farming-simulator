@@ -127,7 +127,27 @@ export const SHOP_STOCK = ['carrot_seed', 'potato_seed', 'corn_seed', 'pumpkin_s
 //   MAX_RISE : 漲幅上限(稀缺時最高 = base*(1+MAX_RISE))
 //   MAX_DROP : 跌幅上限(供過於求時最低 = base*(1-MAX_DROP),即價格地板)
 //   SUPPLY_CAP_MULT : 庫存上限 = demand*此倍數(避免供給無限累積、回升過久)
-export const MARKET = { K: 0.5, MAX_RISE: 0.4, MAX_DROP: 0.6, SUPPLY_CAP_MULT: 4 };
+//   ELASTICITY : 需求價格彈性。當日消耗量 = demand*(1 - ELASTICITY*factor):
+//                價低(factor<0,供過於求)→ 多吃、加速消化庫存;價高(factor>0,稀缺)→ 少吃。
+//                0 = 無彈性(每天固定吃 demand);建議 0.5~1.0。
+//   DEMAND_NOISE : 每日「市場胃納」的隨機波動幅度(±比例)。價格與消耗量都會乘上這個當日倍數,
+//                  讓每天行情有高低。倍數是以 (天數+作物) 為種子的確定性偽隨機 → 同一天固定、免存檔。
+export const MARKET = { K: 0.5, MAX_RISE: 0.4, MAX_DROP: 0.6, SUPPLY_CAP_MULT: 4, ELASTICITY: 0.8, DEMAND_NOISE: 0.2 };
+
+// 節慶行事曆:每 FESTIVAL_CYCLE 天循環一次。節慶當天,對應作物的「市場胃納」×mult —— 需求量與
+// 成交價同步暴增(適合囤貨後在節慶當天大量賣出)。day 以「循環內第幾天」計(1..FESTIVAL_CYCLE)。
+// 全部由天數決定(deterministic),不需存檔、不需 migrate。
+export const FESTIVAL_CYCLE = 30;
+export const FESTIVALS = [
+  { day: 15, crop: 'tomato', name: '番茄節', emoji: '🍅', mult: 3 },
+  { day: 25, crop: 'pumpkin', name: '萬聖節', emoji: '🎃', mult: 3 },
+];
+
+// 查詢某天的節慶(純函式);回傳節慶定義或 null。
+export function festivalFor(day) {
+  const d = ((day - 1) % FESTIVAL_CYCLE) + 1; // 對應到循環內第幾天
+  return FESTIVALS.find((f) => f.day === d) || null;
+}
 
 // NPC 農夫定義(模擬農場)。各自有固定種植流程 routine(作物 id 循環),每 growDays 天收成 yield 個,
 // 產出灌入市場供給並換成自己的財富(排行榜)。farmer 本人以彩色方塊站在 pos(草地格,可對話看狀態)。
