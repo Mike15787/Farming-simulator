@@ -6,9 +6,9 @@
 //  - 田地用一維陣列(index = y * MAP_W + x),格子地圖天生適合索引存取,
 //    效能與序列化都單純。
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
-import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS } from '../config.js';
+import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS, HIRE_DEFS } from '../config.js';
 
-export const SAVE_VERSION = 5; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。v5:農場放大 20×20(tiles 重建)+森林採集。由 main.js 遷移舊檔。
+export const SAVE_VERSION = 7; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。v5:農場放大 20×20(tiles 重建)+森林採集。v6:雇用系統(workers)。v7:倉庫(warehouse)。由 main.js 遷移舊檔。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -53,6 +53,16 @@ export function buildWeather() {
   return { seed: (Math.random() * 0x7fffffff) | 0 };
 }
 
+// 幫工(勞力仲介所)的「動態狀態」(靜態定義在 config.HIRE_DEFS;這裡只存是否已雇用與指派的工作)。
+export function buildWorkers() {
+  return HIRE_DEFS.map((d) => ({ id: d.id, hired: false, job: null })); // job: { x, y, crop } | null
+}
+
+// 倉庫:存放收成(幫工自動收成)與種子的第二個物品堆疊(與 inventory 同款 {id,qty},但沒有「選取格」概念)。
+export function buildWarehouse() {
+  return { items: [] };
+}
+
 // 開新局的預設狀態。
 export function createDefaultState() {
   return {
@@ -72,6 +82,8 @@ export function createDefaultState() {
     weather: buildWeather(), // { seed } —— 天氣由 seed + 日期推導
     barrierDays: 0, // 全域魔法結界剩餘天數(>0 期間全農場免疫颱風)
     forest: { gathered: {} }, // 森林採集紀錄:{ "x,y": 採集當天 day };節點在 day - 記錄 >= respawnDays 時重生
+    workers: buildWorkers(), // 幫工動態狀態:{ id, hired, job:{x,y,crop}|null }
+    warehouse: buildWarehouse(), // 倉庫:{ items: [{id,qty}] }
   };
 }
 

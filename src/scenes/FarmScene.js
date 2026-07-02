@@ -6,7 +6,7 @@
 //   - 任務 NPC、競爭農夫(對話 / 查看狀態)
 // 取其中離玩家最近者當目標並高亮,按動作鍵(空白/E)或點 UI 動作按鈕即執行。
 // 走到門格 → 進室內(碰觸)。面板開啟時(Runtime.shopActive)本場景暫停。
-import { TILE, MAP_W, MAP_H, VIEW_W, VIEW_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, REACH, ITEMS, FARMER_DEFS, WEATHER } from '../config.js';
+import { TILE, MAP_W, MAP_H, VIEW_W, VIEW_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, WAREHOUSE_POS, REACH, ITEMS, FARMER_DEFS, HIRE_DEFS, WEATHER } from '../config.js';
 import { GameState, idx, inBounds } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { FarmSystem, MAX_STAGE } from '../systems/FarmSystem.js';
@@ -74,6 +74,7 @@ export default class FarmScene extends Phaser.Scene {
     if (tx === MARKET_POS.x && ty === MARKET_POS.y) return true;
     if (tx === RANK_POS.x && ty === RANK_POS.y) return true;
     if (tx === WEATHER_POS.x && ty === WEATHER_POS.y) return true;
+    if (tx === WAREHOUSE_POS.x && ty === WAREHOUSE_POS.y) return true;
     if (FARMER_DEFS.some((f) => f.pos.x === tx && f.pos.y === ty)) return true;
     const t = GameState.data.tiles[idx(tx, ty)];
     return t.terrain === 'water' || t.terrain === 'wall';
@@ -137,6 +138,7 @@ export default class FarmScene extends Phaser.Scene {
     consider('market', MARKET_POS);
     consider('rank', RANK_POS);
     consider('forecast', WEATHER_POS);
+    consider('warehouse', WAREHOUSE_POS);
     consider('npc', NPC_POS);
     FARMER_DEFS.forEach((f, i) => consider('farmer', f.pos, { farmerIndex: i }));
 
@@ -162,6 +164,9 @@ export default class FarmScene extends Phaser.Scene {
         break;
       case 'forecast':
         this.openShop('forecast');
+        break;
+      case 'warehouse':
+        this.openShop('warehouse');
         break;
       case 'npc': {
         const d = QuestSystem.talk(GameState.data);
@@ -254,7 +259,7 @@ export default class FarmScene extends Phaser.Scene {
       return;
     }
     const k = this.action.kind;
-    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', forecast: '看預報', npc: '對話', farmer: '攀談' };
+    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', forecast: '看預報', warehouse: '倉庫', npc: '對話', farmer: '攀談' };
     Runtime.actionLabel = k === 'farm' ? ACTION_LABEL[this.action.op] : LABEL[k];
     Runtime.actionEnabled = true;
   }
@@ -287,6 +292,7 @@ export default class FarmScene extends Phaser.Scene {
     block(MARKET_POS, COLORS.market, '市');
     block(RANK_POS, COLORS.rank, '榜');
     block(WEATHER_POS, COLORS.weatherBoard, '報');
+    block(WAREHOUSE_POS, COLORS.warehouse, '倉');
 
     // 競爭農夫:彩色方塊 + 名字標籤
     for (const f of FARMER_DEFS) {
@@ -338,8 +344,23 @@ export default class FarmScene extends Phaser.Scene {
         g.strokeRect(x * TILE, y * TILE, TILE, TILE);
         if (t.crop) this.drawCrop(g, x, y, t.crop);
         if (t.canopy) this.drawCanopy(g, x, y);
+        this.drawWorkerMarker(g, x, y);
       }
     }
+  }
+
+  // 幫工標記:該格若被某位受雇員工指派,右上角畫一個該員工顏色的小色塊,方便玩家一眼辨識。
+  drawWorkerMarker(g, x, y) {
+    const job = GameState.data.workers.find((w) => w.job && w.job.x === x && w.job.y === y);
+    if (!job) return;
+    const def = HIRE_DEFS.find((d) => d.id === job.id);
+    if (!def) return;
+    const px = x * TILE;
+    const py = y * TILE;
+    g.fillStyle(def.color, 1);
+    g.fillRect(px + TILE - 9, py + 2, 7, 7);
+    g.lineStyle(1, 0x000000, 0.4);
+    g.strokeRect(px + TILE - 9, py + 2, 7, 7);
   }
 
   // 棚子:半透明頂蓋 + 兩根支柱,表示這格受保護。

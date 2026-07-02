@@ -1,7 +1,8 @@
-// ShopScene —— 商店 / 市場 / 排行榜 的模態面板(疊在最上層)。
+// ShopScene —— 商店 / 市場 / 排行榜 / 倉庫 的模態面板(疊在最上層)。
 //
-// 四種模式:mode='shop' 買種子;mode='market' 賣作物(動態價);mode='rank' 看財富排行榜(唯讀);
-//           mode='forecast' 看 14 天天氣預報 + 施放魔法結界(唯讀 + 一顆按鈕)。
+// 五種模式:mode='shop' 買種子;mode='market' 賣作物(動態價);mode='rank' 看財富排行榜(唯讀);
+//           mode='forecast' 看 14 天天氣預報 + 施放魔法結界(唯讀 + 一顆按鈕);
+//           mode='warehouse' 看倉庫存放的收成/種子(唯讀,幫工的收成會自動存進來)。
 // 面板蓋住地圖區(留下底部 UI 列可見,方便看金錢),按 Esc 或「關閉」鈕離開。
 // 本場景只負責畫面與點擊,交易交給 ShopSystem、價格走 MarketSystem、預報走 WeatherSystem。開啟期間
 // Runtime.shopActive=true,讓 FarmScene 暫停、UIScene 不吃點擊。
@@ -28,7 +29,7 @@ export default class ShopScene extends Phaser.Scene {
   }
 
   init(data) {
-    this.mode = (data && data.mode) || 'shop'; // 'shop' | 'market' | 'rank' | 'forecast'
+    this.mode = (data && data.mode) || 'shop'; // 'shop' | 'market' | 'rank' | 'forecast' | 'warehouse'
   }
 
   create() {
@@ -58,6 +59,15 @@ export default class ShopScene extends Phaser.Scene {
     }
     if (this.mode === 'rank') {
       return FarmerSystem.ranking(s).map((r, i) => ({ kind: 'rank', rankNo: i + 1, name: r.name, money: r.money, isPlayer: r.isPlayer }));
+    }
+    if (this.mode === 'warehouse') {
+      return s.warehouse.items.map((it) => ({
+        id: it.id,
+        kind: 'warehouse',
+        name: itemName(it.id),
+        color: (ITEMS[it.id] && ITEMS[it.id].color) || 0xffffff,
+        qty: it.qty,
+      }));
     }
     // market:背包中可販售的作物,顯示動態價 + 漲跌;節慶當天的熱門作物名稱前加 emoji。
     const fest = festivalFor(s.day);
@@ -109,6 +119,11 @@ export default class ShopScene extends Phaser.Scene {
       if (row.kind === 'buy') {
         this.rowObjs.push(this.add.text(PANEL.x + 54, ry + 24, '$' + row.price, { fontFamily: 'monospace', fontSize: '12px', color: '#b0bec5' }).setDepth(2));
         row.buttons.push(this.makeButton(right - 84, ry + 8, 84, 30, '購買', 0x2e7d32, { type: 'buy', id: row.id, qty: 1 }));
+      } else if (row.kind === 'warehouse') {
+        // 倉庫列:唯讀,只顯示數量,沒有按鈕。
+        this.rowObjs.push(
+          this.add.text(right, ry + 12, '×' + row.qty, { fontFamily: 'monospace', fontSize: '15px', color: '#b0bec5' }).setOrigin(1, 0).setDepth(2)
+        );
       } else {
         // 賣出列:持有量 + 動態市價 + 漲跌箭頭(相對基準價)
         const tr = TREND[row.trend];
@@ -226,6 +241,7 @@ export default class ShopScene extends Phaser.Scene {
       market: '🏪 市場 — 販售作物(價格隨供需浮動)',
       rank: '🏆 排行榜 — 傳說中的農夫',
       forecast: '📋 天氣預報 — 未來 14 天(越遠越不準)',
+      warehouse: '📦 倉庫 — 存放的收成與種子(幫工的收成會自動存進來)',
     };
     this.title.setText(TITLE[this.mode] || TITLE.shop);
     this.draw();
@@ -238,6 +254,8 @@ export default class ShopScene extends Phaser.Scene {
       ? COLORS.market
       : this.mode === 'forecast'
       ? COLORS.weatherBoard
+      : this.mode === 'warehouse'
+      ? COLORS.warehouse
       : COLORS.rank;
   }
 
@@ -261,11 +279,12 @@ export default class ShopScene extends Phaser.Scene {
     if (!this._closeX) {
       this._closeX = this.add.text(CLOSE.x + CLOSE.w / 2, CLOSE.y + CLOSE.h / 2, '✕', { fontFamily: 'sans-serif', fontSize: '15px', color: '#ffffff' }).setOrigin(0.5).setDepth(3);
     }
-    // 市場無可賣作物的提示
-    const showEmpty = this.mode === 'market' && this.rows.length === 0;
+    // 市場無可賣作物 / 倉庫是空的提示
+    const showEmpty = (this.mode === 'market' || this.mode === 'warehouse') && this.rows.length === 0;
     if (showEmpty) {
       if (!this._empty) {
-        this._empty = this.add.text(PANEL.x + PANEL.w / 2, ROW_TOP + 30, '目前沒有可販售的作物', { fontFamily: 'sans-serif', fontSize: '14px', color: '#90a4ae' }).setOrigin(0.5).setDepth(2);
+        const emptyText = this.mode === 'warehouse' ? '倉庫目前是空的' : '目前沒有可販售的作物';
+        this._empty = this.add.text(PANEL.x + PANEL.w / 2, ROW_TOP + 30, emptyText, { fontFamily: 'sans-serif', fontSize: '14px', color: '#90a4ae' }).setOrigin(0.5).setDepth(2);
       }
       this._empty.setVisible(true);
     } else if (this._empty) {
@@ -273,7 +292,7 @@ export default class ShopScene extends Phaser.Scene {
     }
     // 底部操作提示
     if (!this._hint) {
-      const HINT = { rank: 'Esc 或 ✕ 關閉', forecast: '施放結界防颱 · Esc 或 ✕ 關閉' };
+      const HINT = { rank: 'Esc 或 ✕ 關閉', forecast: '施放結界防颱 · Esc 或 ✕ 關閉', warehouse: 'Esc 或 ✕ 關閉' };
       const hint = HINT[this.mode] || '點按鈕交易 · Esc 或 ✕ 關閉';
       this._hint = this.add.text(PANEL.x + 16, PANEL.y + PANEL.h - 22, hint, { fontFamily: 'monospace', fontSize: '11px', color: '#78909c' }).setDepth(2);
     }

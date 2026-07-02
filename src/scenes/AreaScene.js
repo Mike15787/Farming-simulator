@@ -1,8 +1,9 @@
 // AreaScene —— 城鎮 / 森林 的通用戶外場景(資料驅動,一個類別註冊成兩個 key)。
 //
 // 與 FarmScene 相同的互動骨架(自由移動 + 對最近目標動作 + 相機捲動 + 通道格切換),但地圖是
-// config.AREA_MAPS 的靜態字元格(不進 GameState.tiles),且動作只有「採集」(森林的 gatherNodes)。
-// 城鎮沒有採集點 → 動作按鈕停用,純探索。切換由 mapUtils 的通道關口處理。
+// config.AREA_MAPS 的靜態字元格(不進 GameState.tiles),且動作有「採集」(森林的 gatherNodes)與
+// 「建物」(城鎮的 buildings,如勞力仲介所,靠近後開對應模態面板)兩種,皆為可選欄位。
+// 切換由 mapUtils 的通道關口處理。
 import { TILE, REACH, COLORS, AREA_MAPS, ITEMS } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
@@ -10,6 +11,9 @@ import { InventorySystem, itemName } from '../systems/InventorySystem.js';
 import { Runtime } from '../runtime.js';
 import { setupWorldCamera, transitionTo, portalAt } from '../mapUtils.js';
 import Player from '../entities/Player.js';
+
+// 建物 kind → 要開啟的模態場景 key。
+const BUILDING_SCENE = { agency: 'HireScene' };
 
 export default class AreaScene extends Phaser.Scene {
   constructor(key, mapId) {
@@ -26,9 +30,11 @@ export default class AreaScene extends Phaser.Scene {
 
     this.terrainGfx = this.add.graphics().setDepth(0);
     this.nodeGfx = this.add.graphics().setDepth(1); // 採集點
+    this.buildingGfx = this.add.graphics().setDepth(1); // 建物(如勞力仲介所),靜態不重繪
     this.highlightGfx = this.add.graphics().setDepth(3);
     this.drawTerrain();
     this.drawNodes();
+    this.drawBuildings();
 
     const p = GameState.data.player;
     this.player = new Player(this, 0, 0, p.x, p.y, p.facing, (tx, ty) => this.solidAt(tx, ty));
@@ -54,6 +60,7 @@ export default class AreaScene extends Phaser.Scene {
   solidAt(tx, ty) {
     const c = this.cell(tx, ty);
     if (c === null) return true; // 界外
+    if ((this.def.buildings || []).some((b) => b.x === tx && b.y === ty)) return true;
     return this.def.solid.includes(c);
   }
 
@@ -94,7 +101,7 @@ export default class AreaScene extends Phaser.Scene {
     this.updateActionLabel();
   }
 
-  // 在 REACH 內找最近的「已重生採集點」。
+  // 在 REACH 內找最近的目標:「已重生採集點」或「建物」(如勞力仲介所)。
   computeAction() {
     let best = null;
     let bestD2 = REACH * REACH;
@@ -111,6 +118,17 @@ export default class AreaScene extends Phaser.Scene {
         best = { kind: 'gather', x: n.x, y: n.y, node: n };
       }
     }
+    for (const b of this.def.buildings || []) {
+      const cx = b.x * TILE + TILE / 2;
+      const cy = b.y * TILE + TILE / 2;
+      const dx = this.player.x - cx;
+      const dy = this.player.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= bestD2) {
+        bestD2 = d2;
+        best = { kind: b.kind, x: b.x, y: b.y };
+      }
+    }
     this.action = best;
   }
 
@@ -120,15 +138,26 @@ export default class AreaScene extends Phaser.Scene {
       ui.advanceDialog();
       return;
     }
-    if (!this.action || this.action.kind !== 'gather') return;
-    const n = this.action.node;
-    const qty = 1 + (Math.random() < 0.4 ? 1 : 0); // 1~2 個
-    InventorySystem.addItem(GameState.data, n.item, qty);
-    GameState.data.forest.gathered[n.x + ',' + n.y] = GameState.data.day;
-    SaveManager.save(GameState.data);
-    this.flashGather(n, qty);
-    this.action = null;
-    this.drawNodes();
+    if (!this.action) return;
+    if (this.action.kind === 'gather') {
+      const n = this.action.node;
+      const qty = 1 + (Math.random() < 0.4 ? 1 : 0); // 1~2 個
+      InventorySystem.addItem(GameState.data, n.item, qty);
+      GameState.data.forest.gathered[n.x + ',' + n.y] = GameState.data.day;
+      SaveManager.save(GameState.data);
+      this.flashGather(n, qty);
+      this.action = null;
+      this.drawNodes();
+      return;
+    }
+    const sceneKey = BUILDING_SCENE[this.action.kind];
+    if (sceneKey) this.openBuilding(sceneKey);
+  }
+
+  openBuilding(sceneKey) {
+    this.player.syncToState(GameState.data);
+    this.scene.launch(sceneKey);
+    this.scene.bringToTop(sceneKey);
   }
 
   // 採集回饋:節點上方浮出「+野莓 ×2」文字,上升淡出(非阻斷)。
@@ -149,7 +178,8 @@ export default class AreaScene extends Phaser.Scene {
       return;
     }
     if (this.action) {
-      Runtime.actionLabel = '採集';
+      const LABEL = { gather: '採集', agency: '仲介所' };
+      Runtime.actionLabel = LABEL[this.action.kind] || '互動';
       Runtime.actionEnabled = true;
       return;
     }
@@ -199,6 +229,21 @@ export default class AreaScene extends Phaser.Scene {
         g.fillStyle(0x9e9e9e, 0.4);
         g.fillCircle(cx, cy, 3);
       }
+    }
+  }
+
+  // 建物色塊(如勞力仲介所):靜態位置,create() 時畫一次,不隨互動重繪。
+  drawBuildings() {
+    const g = this.buildingGfx;
+    g.clear();
+    for (const b of this.def.buildings || []) {
+      const px = b.x * TILE;
+      const py = b.y * TILE;
+      g.fillStyle(COLORS[b.colorKey] || COLORS.building, 1);
+      g.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+      g.lineStyle(2, 0x000000, 0.3);
+      g.strokeRect(px + 2, py + 2, TILE - 4, TILE - 4);
+      this.add.text(px + TILE / 2, py + TILE / 2, b.label, { fontFamily: 'sans-serif', fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(3);
     }
   }
 

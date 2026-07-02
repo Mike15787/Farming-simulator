@@ -1,7 +1,7 @@
 // Phaser 遊戲初始化 —— 渲染行程入口。
 // 流程:讀存檔(沒有就開新局)→ 建立 Phaser.Game → 由 BootScene 決定進入哪個場景。
 import { GAME_W, GAME_H, MAP_W, MAP_H, gridToPixel } from './config.js';
-import { GameState, createDefaultState, SAVE_VERSION, buildTiles, buildMarket, buildFarmers, buildWeather, idx } from './state/GameState.js';
+import { GameState, createDefaultState, SAVE_VERSION, buildTiles, buildMarket, buildFarmers, buildWeather, buildWorkers, buildWarehouse, idx } from './state/GameState.js';
 import { SaveManager } from './state/SaveManager.js';
 import { Runtime } from './runtime.js';
 import BootScene from './scenes/BootScene.js';
@@ -10,6 +10,7 @@ import HouseScene from './scenes/HouseScene.js';
 import AreaScene from './scenes/AreaScene.js';
 import UIScene from './scenes/UIScene.js';
 import ShopScene from './scenes/ShopScene.js';
+import HireScene from './scenes/HireScene.js';
 
 // 舊存檔遷移:
 //   v1→v2:玩家座標由「格子」改為「像素」。
@@ -17,6 +18,8 @@ import ShopScene from './scenes/ShopScene.js';
 //   v3→v4:加入天氣種子與魔法結界天數(舊檔沒有就補預設;tile.canopy 缺值靠讀取端容錯)。
 //   v4→v5:農場由 15×15 放大為 20×20 → tiles 長度改變。重建新地圖並把舊田進度(翻土/作物/棚子)
 //          複製到相同座標(既有區塊位置不變 → 座標對齊);補森林採集狀態、補市場新物品供給。
+//   v5→v6:加入雇用系統(舊檔沒有就補預設 workers)。
+//   v6→v7:加入倉庫(舊檔沒有就補預設 warehouse)。
 // 其餘欄位(inventory/quests)皆相容。
 function migrate(s) {
   if (!s || s.version === SAVE_VERSION) return s;
@@ -53,6 +56,12 @@ function migrate(s) {
   if (!s.market.supply) s.market.supply = freshMkt.supply;
   else for (const id in freshMkt.supply) if (s.market.supply[id] == null) s.market.supply[id] = freshMkt.supply[id];
 
+  // v5→v6:雇用系統(幫工)。
+  if (!s.workers) s.workers = buildWorkers();
+
+  // v6→v7:倉庫。
+  if (!s.warehouse) s.warehouse = buildWarehouse();
+
   s.version = SAVE_VERSION;
   return s;
 }
@@ -68,9 +77,9 @@ const config = {
   backgroundColor: '#1b1b1b',
   pixelArt: true,
   roundPixels: true,
-  // 場景陣列順序即渲染疊放順序:UIScene 常駐在 HUD 層,ShopScene(買賣面板)在最後 = 最上層。
+  // 場景陣列順序即渲染疊放順序:UIScene 常駐在 HUD 層,ShopScene/HireScene(模態面板)在最後 = 最上層。
   // 城鎮/森林為同一 AreaScene 類別、以不同 key + mapId 註冊(資料驅動)。
-  scene: [BootScene, FarmScene, HouseScene, new AreaScene('TownScene', 'town'), new AreaScene('ForestScene', 'forest'), UIScene, ShopScene],
+  scene: [BootScene, FarmScene, HouseScene, new AreaScene('TownScene', 'town'), new AreaScene('ForestScene', 'forest'), UIScene, ShopScene, HireScene],
 };
 
 // 開發用:掛到 window 方便在 DevTools 主控台檢視/除錯。

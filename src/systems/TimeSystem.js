@@ -6,6 +6,7 @@ import { WEATHER_FX } from '../config.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { MAX_STAGE } from './FarmSystem.js';
 import { FarmerSystem } from './FarmerSystem.js';
+import { HireSystem } from './HireSystem.js';
 import { MarketSystem } from './MarketSystem.js';
 import { WeatherSystem } from './WeatherSystem.js';
 
@@ -15,6 +16,10 @@ export const TimeSystem = {
     const endedDay = state.day - 1; // 剛結束、要結算的那一天
     const w = WeatherSystem.weatherForDay(state, endedDay);
     const autoWater = WeatherSystem.dayAutoWaters(w); // 下雨/颱風當天自動澆水
+
+    // 0) 幫工結算(扣日薪 + 對指派田做「今天的一步」翻土/播種/澆水/收成):須在田地生長迴圈
+    //    之前,幫工今天澆的水才會被緊接著的生長迴圈正確結算(與玩家自己白天澆水同一節奏)。
+    HireSystem.stepDay(state);
 
     // 1) 玩家田地當日結算(天氣感知):
     //    - 颱風且未受保護 → 農損掉 1 階、今天不生長(結界/棚子可免疫)。
