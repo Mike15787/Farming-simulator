@@ -2,23 +2,21 @@
 //
 // 互動模型:玩家自由移動;每幀在 REACH 範圍內找「最近的可動作目標」,可能是:
 //   - 土格(鋤地/播種/澆水/收割,FarmSystem.canActOnTile 判定)
-//   - 商店 / 市場 / 排行榜 色塊(開對應面板)
-//   - 任務 NPC、競爭農夫(對話 / 查看狀態)
+//   - 商店 / 市場 / 排行榜 / 倉庫 色塊(開對應面板)
+//   - 競爭農夫(對話查看狀態)
 // 取其中離玩家最近者當目標並高亮,按動作鍵(空白/E)或點 UI 動作按鈕即執行。
 // 走到門格 → 進室內(碰觸)。面板開啟時(Runtime.shopActive)本場景暫停。
-import { TILE, MAP_W, MAP_H, VIEW_W, VIEW_H, COLORS, NPC_POS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, WAREHOUSE_POS, REACH, ITEMS, FARMER_DEFS, HIRE_DEFS, WEATHER } from '../config.js';
+// 任務 NPC 不在農場——全部集中在任務村地圖(見 AreaScene 的 npcs 機制),農場走西側通道可達。
+import { TILE, MAP_W, MAP_H, VIEW_W, VIEW_H, COLORS, SHOP_POS, MARKET_POS, RANK_POS, WEATHER_POS, WAREHOUSE_POS, REACH, ITEMS, FARMER_DEFS, HIRE_DEFS, WEATHER } from '../config.js';
 import { GameState, idx, inBounds } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { FarmSystem, MAX_STAGE } from '../systems/FarmSystem.js';
-import { QuestSystem } from '../systems/QuestSystem.js';
-import { InventorySystem } from '../systems/InventorySystem.js';
 import { FarmerSystem } from '../systems/FarmerSystem.js';
 import { MarketSystem } from '../systems/MarketSystem.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { Runtime } from '../runtime.js';
 import { setupWorldCamera, transitionTo, portalAt } from '../mapUtils.js';
 import Player from '../entities/Player.js';
-import NPC from '../entities/NPC.js';
 
 const ACTION_LABEL = { till: '鋤地', plant: '播種', water: '澆水', harvest: '收割', canopy: '搭棚' };
 const PHASE_MS = 15000; // 天氣覆蓋層「上午→下午」切換的實時秒數(純氣氛)
@@ -48,8 +46,6 @@ export default class FarmScene extends Phaser.Scene {
     this.phaseElapsed = 0;
     this.drawWeather();
 
-    this.npc = new NPC(this, this.originX, this.originY);
-
     const p = GameState.data.player;
     this.player = new Player(this, this.originX, this.originY, p.x, p.y, p.facing, (tx, ty) => this.solidAt(tx, ty));
 
@@ -57,7 +53,7 @@ export default class FarmScene extends Phaser.Scene {
     setupWorldCamera(this, MAP_W * TILE, MAP_H * TILE, this.player.container);
     Runtime.gameScene = this; // UIScene 動作按鈕分派用
 
-    this.action = null; // { kind:'farm'|'shop'|'market'|'npc', x, y, op? }
+    this.action = null; // { kind:'farm'|'shop'|'market'|'rank'|'forecast'|'warehouse'|'farmer', x, y, op? }
 
     const kb = this.input.keyboard;
     this.keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -66,10 +62,9 @@ export default class FarmScene extends Phaser.Scene {
     for (let i = 0; i < 9; i++) this.numKeys.push(kb.addKey(Phaser.Input.Keyboard.KeyCodes.ONE + i));
   }
 
-  // ── 碰撞:水/牆/界外/NPC/農夫/商店/市場/排行榜 不可進入 ────
+  // ── 碰撞:水/牆/界外/農夫/商店/市場/排行榜 不可進入 ────
   solidAt(tx, ty) {
     if (!inBounds(tx, ty)) return true;
-    if (tx === NPC_POS.x && ty === NPC_POS.y) return true;
     if (tx === SHOP_POS.x && ty === SHOP_POS.y) return true;
     if (tx === MARKET_POS.x && ty === MARKET_POS.y) return true;
     if (tx === RANK_POS.x && ty === RANK_POS.y) return true;
@@ -107,7 +102,7 @@ export default class FarmScene extends Phaser.Scene {
     return dx * dx + dy * dy;
   }
 
-  // 在 REACH 內找「最近的可動作目標」(土格 / 商店 / 市場 / NPC),取距離最小者。
+  // 在 REACH 內找「最近的可動作目標」(土格 / 商店 / 市場 / 農夫),取距離最小者。
   computeAction() {
     const sel = this.selectedItem();
     let best = null;
@@ -139,7 +134,6 @@ export default class FarmScene extends Phaser.Scene {
     consider('rank', RANK_POS);
     consider('forecast', WEATHER_POS);
     consider('warehouse', WAREHOUSE_POS);
-    consider('npc', NPC_POS);
     FARMER_DEFS.forEach((f, i) => consider('farmer', f.pos, { farmerIndex: i }));
 
     this.action = best;
@@ -168,11 +162,6 @@ export default class FarmScene extends Phaser.Scene {
       case 'warehouse':
         this.openShop('warehouse');
         break;
-      case 'npc': {
-        const d = QuestSystem.talk(GameState.data);
-        ui.startDialog(d.lines, d.onEnd);
-        break;
-      }
       case 'farmer':
         ui.startDialog(this.talkFarmer(this.action.farmerIndex), null);
         break;
@@ -234,10 +223,6 @@ export default class FarmScene extends Phaser.Scene {
     this.drawHighlight();
     this.updateActionLabel();
 
-    const q = GameState.data.quests.tomatoQuest;
-    const canQuest = q === 'not_started' || (q === 'in_progress' && InventorySystem.countItem(GameState.data, 'tomato') >= 3);
-    this.npc.setMarker(canQuest);
-
     // 天氣覆蓋層:上午/下午輪替(純氣氛)。
     this.phaseElapsed += delta;
     if (this.phaseElapsed >= PHASE_MS) {
@@ -259,7 +244,7 @@ export default class FarmScene extends Phaser.Scene {
       return;
     }
     const k = this.action.kind;
-    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', forecast: '看預報', warehouse: '倉庫', npc: '對話', farmer: '攀談' };
+    const LABEL = { shop: '商店', market: '市場', rank: '排行榜', forecast: '看預報', warehouse: '倉庫', farmer: '攀談' };
     Runtime.actionLabel = k === 'farm' ? ACTION_LABEL[this.action.op] : LABEL[k];
     Runtime.actionEnabled = true;
   }

@@ -15,6 +15,7 @@ export const GAME_H = VIEW_H + UI_H; // 560:畫布高(地圖區 + UI 列)
 // 註:農場地圖尺寸 MAP_W / MAP_H 由 FARM_MAP 推導(見下方 FARM_MAP 之後),不再固定 15。
 
 export const PLAYER_SPEED = 150; // 自由移動速度(像素/秒)
+export const PLAYER_SPRINT_MULT = 1.8; // 按住 Shift 加速走動的速度倍率
 export const PLAYER_HALF = 8; // 玩家碰撞方框半徑(像素)
 export const REACH = TILE * 1.8; // 耕作/對話可及距離(像素):動作按鈕只作用於此範圍內最近目標
 
@@ -107,9 +108,10 @@ export const CHAR_TERRAIN = {
 };
 
 // 戶外農場佈局(20×20,比一屏 15×15 大 → 相機捲動)。
-// G=草地 S=可耕地 W=水域(邊界) H=房屋牆 D=門 P=通道(往城鎮)
+// G=草地 S=可耕地 W=水域(邊界) H=房屋牆 D=門 P=通道(東往城鎮、西往任務村)
 //   保留原 15×15 的既有座標(房屋、中央田、商店/市場/榜/報、農夫、玩家起點皆不變),
-//   東側新增田 A(cols15-18,rows6-9)、南側新增田 B(cols6-10,rows15-18),東界 (19,10) 為通道 P。
+//   東側新增田 A(cols15-18,rows6-9)、南側新增田 B(cols6-10,rows15-18),東界 (19,10) 為通道 P,
+//   西界 (0,10) 為另一個通道 P(往任務村,見 AREA_MAPS.quests)。
 export const FARM_MAP = [
   'WWWWWWWWWWWWWWWWWWWW',
   'WGGGGGGGGGGGGGGGGGGW',
@@ -121,7 +123,7 @@ export const FARM_MAP = [
   'WGGGGGSSSSSSGGGSSSSW',
   'WGGGGGSSSSSSGGGSSSSW',
   'WGGGGGSSSSSSGGGSSSSW',
-  'WGGGGGSSSSSSGGGGGGGP',
+  'PGGGGGSSSSSSGGGGGGGP',
   'WGGGGGSSSSSSGGGGGGGW',
   'WGGGGGGGGGGGGGGGGGGW',
   'WGGGGGGGGGGGGGGGGGGW',
@@ -149,7 +151,6 @@ export const HOUSE_MAP = [
   '####E####',
 ];
 
-export const NPC_POS = { x: 3, y: 8 }; // NPC 站在農田左側的草地上
 export const PLAYER_START = { x: 5, y: 9, facing: 'down' }; // 開新局玩家位置
 export const FARM_RETURN = { x: 2, y: 5 }; // 從室內回到戶外時的落點(門口下方)
 export const SHOP_POS = { x: 13, y: 7 }; // 商店色塊(買種子)
@@ -271,11 +272,14 @@ export const HIRE_DEFS = [
   { id: 'xiao_lan', name: '小蘭', color: 0xec407a, hireCost: 350, wage: 25 },
 ];
 
-// ── 城鎮 / 森林 地圖(資料驅動,由 AreaScene 共用)──────────────
+// ── 城鎮 / 森林 / 任務村 地圖(資料驅動,由 AreaScene 共用)──────
 // 每張:layout=字元格陣列(可大於一屏 → 相機捲動);colors=字元→COLORS 鍵;solid=實心字元集合。
-//   城鎮字元:B=建物 .=地面 R=道路 W=水 P=通道關口。 森林:G=草地 T=樹 W=水 P=通道關口。
+//   城鎮字元:B=建物 .=地面 R=道路 W=水 P=通道關口。 森林/任務村:G=草地 T=樹 W=水 P=通道關口。
 // gatherNodes(森林):可採集節點,不進 layout(疊在草地上繪製)。item=產出物品,respawnDays=隔幾天重生。
 // buildings(可選):靜態可互動建物點,不進 layout(疊在地面上繪製)。{ id, x, y, kind, label, colorKey }。
+// npcs(可選):靜態可對話 NPC,不進 layout(疊在地面上繪製)。{ id, x, y, color, name? };id 對應
+//   QuestSystem 的任務 id——GameState.buildQuests() 會依這裡列出的 id 自動產生預設任務狀態,
+//   新增一條任務線路只要在這裡加一筆座標 + 在 QuestSystem.HANDLERS 加一個同名 handler。
 export const AREA_MAPS = {
   town: {
     name: '城鎮',
@@ -332,18 +336,41 @@ export const AREA_MAPS = {
       { x: 15, y: 10, item: 'mushroom', respawnDays: 3 },
     ],
   },
+  // 任務村:集中放置所有任務 NPC 的小空地,農場西側通道直達,方便測試不同任務線路不必跑遍大地圖。
+  quests: {
+    name: '任務村',
+    colors: { T: 'tree', G: 'grass', P: 'path' },
+    solid: 'T',
+    layout: [
+      'TTTTTTTTTTTTTT',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGP',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGT',
+      'TGGGGGGGGGGGGT',
+      'TTTTTTTTTTTTTT',
+    ],
+    npcs: [{ id: 'tomatoQuest', x: 6, y: 4, color: COLORS.npc }],
+  },
 };
 
 // 通道關口:走到某地圖的 (x,y) 通道格 → 切到 to 地圖、落在 dest 格(dest 必為非通道格,避免立即彈回)。
-// 拓撲:農場 ⇄ 城鎮 ⇄ 森林(城鎮為樞紐)。
+// 拓撲:任務村 ⇄ 農場 ⇄ 城鎮 ⇄ 森林(農場東西各一個出口,城鎮是城鎮/森林側的樞紐)。
 export const PORTALS = {
-  farm: [{ x: 19, y: 10, to: 'town', dest: { x: 1, y: 7 } }],
+  farm: [
+    { x: 19, y: 10, to: 'town', dest: { x: 1, y: 7 } },
+    { x: 0, y: 10, to: 'quests', dest: { x: 12, y: 4 } },
+  ],
   town: [
     { x: 0, y: 7, to: 'farm', dest: { x: 18, y: 10 } },
     { x: 19, y: 7, to: 'forest', dest: { x: 1, y: 8 } },
   ],
   forest: [{ x: 0, y: 8, to: 'town', dest: { x: 18, y: 7 } }],
+  quests: [{ x: 13, y: 4, to: 'farm', dest: { x: 1, y: 10 } }],
 };
 
 // 地圖 id → 場景 key(BootScene / mapUtils 用)。
-export const SCENE_KEY = { farm: 'FarmScene', house: 'HouseScene', town: 'TownScene', forest: 'ForestScene' };
+export const SCENE_KEY = { farm: 'FarmScene', house: 'HouseScene', town: 'TownScene', forest: 'ForestScene', quests: 'QuestScene' };

@@ -2,12 +2,13 @@
 //
 // 設計重點:
 //  - 位置以像素 (x, y) 表示,每幀依輸入向量移動。對角線會正規化,速度不會變快。
+//  - 按住 Shift 加速走動(PLAYER_SPRINT_MULT 倍),純輸入層面的調整,不影響碰撞/互動判定。
 //  - 碰撞採「分軸 + 方框四角取樣」:先試 X 再試 Y,撞到實心格就退回該軸,
 //    可沿牆滑行、卡角不穿牆。實心與否由場景提供的 solidAt(tileX, tileY) 決定。
 //  - facing 只剩視覺用途(鼻子朝向),由移動向量的主軸推得。互動已改為「對最近目標動作」,
 //    不再依賴面向。
 //  - 玩家的真實座標(像素)在切場景/存檔前由場景同步回 GameState。
-import { TILE, COLORS, PLAYER_SPEED, PLAYER_HALF } from '../config.js';
+import { TILE, COLORS, PLAYER_SPEED, PLAYER_SPRINT_MULT, PLAYER_HALF } from '../config.js';
 
 const DIRS = {
   up: { dx: 0, dy: -1 },
@@ -107,7 +108,8 @@ export default class Player {
     const len = Math.hypot(vx, vy); // 對角線正規化
     vx /= len;
     vy /= len;
-    const dist = this.speed * (delta / 1000);
+    const speed = c.shift.isDown ? this.speed * PLAYER_SPRINT_MULT : this.speed; // 按住 Shift 加速
+    const dist = speed * (delta / 1000);
 
     const nx = this.x + vx * dist;
     if (!this.blocked(nx, this.y)) this.x = nx;

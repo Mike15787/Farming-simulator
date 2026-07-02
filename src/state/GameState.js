@@ -6,9 +6,9 @@
 //  - 田地用一維陣列(index = y * MAP_W + x),格子地圖天生適合索引存取,
 //    效能與序列化都單純。
 //  - 跨場景共享(背包、天數、田地)都讀同一份 GameState.data。
-import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS, HIRE_DEFS } from '../config.js';
+import { MAP_W, MAP_H, FARM_MAP, CHAR_TERRAIN, PLAYER_START, FARM_RETURN, gridToPixel, ITEMS, FARMER_DEFS, HIRE_DEFS, AREA_MAPS } from '../config.js';
 
-export const SAVE_VERSION = 7; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。v5:農場放大 20×20(tiles 重建)+森林採集。v6:雇用系統(workers)。v7:倉庫(warehouse)。由 main.js 遷移舊檔。
+export const SAVE_VERSION = 8; // v2:像素座標。v3:市場供給+NPC 農夫。v4:天氣種子+結界天數。v5:農場放大 20×20(tiles 重建)+森林採集。v6:雇用系統(workers)。v7:倉庫(warehouse)。v8:農場西側新增任務村通道,(0,10) 的地形由 water 改 path。由 main.js 遷移舊檔。
 
 export function idx(x, y) {
   return y * MAP_W + x;
@@ -63,11 +63,19 @@ export function buildWarehouse() {
   return { items: [] };
 }
 
+// 任務狀態:以 AREA_MAPS.quests.npcs 列出的 id 為唯一真實來源(那裡放哪些 NPC,就有哪些任務),
+// 每個都預設 'not_started'。新增任務線路只要在該處多加一筆 npc + 在 QuestSystem.HANDLERS 加對應
+// handler,這裡自動就會產生預設狀態,不用另外維護一份任務 id 清單。
+export function buildQuests() {
+  const ids = ((AREA_MAPS.quests && AREA_MAPS.quests.npcs) || []).map((n) => n.id);
+  return Object.fromEntries(ids.map((id) => [id, 'not_started']));
+}
+
 // 開新局的預設狀態。
 export function createDefaultState() {
   return {
     version: SAVE_VERSION,
-    currentScene: 'farm', // 'farm' | 'house' —— 存檔/讀檔時用來還原玩家所在場景
+    currentScene: 'farm', // 'farm' | 'house' | 'town' | 'forest' | 'quests' —— 存檔/讀檔時用來還原玩家所在場景
     // 玩家座標為「農場場景」的像素位置(自由移動)。室內固定從入口進場,不讀此值。
     player: { x: gridToPixel(PLAYER_START.x), y: gridToPixel(PLAYER_START.y), facing: PLAYER_START.facing },
     farmReturn: { x: FARM_RETURN.x, y: FARM_RETURN.y }, // 從室內出來時的落點(格子座標)
@@ -76,7 +84,7 @@ export function createDefaultState() {
     tiles: buildTiles(),
     inventory: [{ id: 'tomato_seed', qty: 5 }], // 物品堆疊:同 id 累加數量
     selectedSlot: 0,
-    quests: { tomatoQuest: 'not_started' },
+    quests: buildQuests(), // 依 AREA_MAPS.quests.npcs 動態產生,{ questId: 'not_started'|'in_progress'|'completed' }
     market: buildMarket(), // { supply: { cropId: 數量 } }
     farmers: buildFarmers(), // NPC 農夫動態狀態
     weather: buildWeather(), // { seed } —— 天氣由 seed + 日期推導

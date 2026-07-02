@@ -20,6 +20,10 @@ import HireScene from './scenes/HireScene.js';
 //          複製到相同座標(既有區塊位置不變 → 座標對齊);補森林採集狀態、補市場新物品供給。
 //   v5→v6:加入雇用系統(舊檔沒有就補預設 workers)。
 //   v6→v7:加入倉庫(舊檔沒有就補預設 warehouse)。
+//   v7→v8:農場西側 (0,10) 新增往任務村的通道(FARM_MAP 該格字元由 W 改 P)。tiles 是存檔內容,
+//          不會因為改了 config 就自動更新,所以舊檔那一格的 terrain 仍是 'water'(被 solidAt 擋住,
+//          玩家永遠走不到、也就用不了新通道)——直接把該格的 terrain 更正為 'path' 即可,其餘欄位
+//          不受影響(邊界格本來就不可能有翻土/作物/棚子進度)。
 // 其餘欄位(inventory/quests)皆相容。
 function migrate(s) {
   if (!s || s.version === SAVE_VERSION) return s;
@@ -62,6 +66,12 @@ function migrate(s) {
   // v6→v7:倉庫。
   if (!s.warehouse) s.warehouse = buildWarehouse();
 
+  // v7→v8:農場西側新增任務村通道,(0,10) 的地形由 water 改 path(見上方註解)。
+  const westPortalTile = s.tiles && s.tiles[idx(0, 10)];
+  if (westPortalTile && westPortalTile.terrain === 'water') {
+    westPortalTile.terrain = 'path';
+  }
+
   s.version = SAVE_VERSION;
   return s;
 }
@@ -78,8 +88,18 @@ const config = {
   pixelArt: true,
   roundPixels: true,
   // 場景陣列順序即渲染疊放順序:UIScene 常駐在 HUD 層,ShopScene/HireScene(模態面板)在最後 = 最上層。
-  // 城鎮/森林為同一 AreaScene 類別、以不同 key + mapId 註冊(資料驅動)。
-  scene: [BootScene, FarmScene, HouseScene, new AreaScene('TownScene', 'town'), new AreaScene('ForestScene', 'forest'), UIScene, ShopScene, HireScene],
+  // 城鎮/森林/任務村為同一 AreaScene 類別、以不同 key + mapId 註冊(資料驅動)。
+  scene: [
+    BootScene,
+    FarmScene,
+    HouseScene,
+    new AreaScene('TownScene', 'town'),
+    new AreaScene('ForestScene', 'forest'),
+    new AreaScene('QuestScene', 'quests'),
+    UIScene,
+    ShopScene,
+    HireScene,
+  ],
 };
 
 // 開發用:掛到 window 方便在 DevTools 主控台檢視/除錯。

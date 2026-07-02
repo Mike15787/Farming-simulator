@@ -1,16 +1,18 @@
-// AreaScene —— 城鎮 / 森林 的通用戶外場景(資料驅動,一個類別註冊成兩個 key)。
+// AreaScene —— 城鎮 / 森林 / 任務村 的通用戶外場景(資料驅動,一個類別註冊成多個 key)。
 //
 // 與 FarmScene 相同的互動骨架(自由移動 + 對最近目標動作 + 相機捲動 + 通道格切換),但地圖是
-// config.AREA_MAPS 的靜態字元格(不進 GameState.tiles),且動作有「採集」(森林的 gatherNodes)與
-// 「建物」(城鎮的 buildings,如勞力仲介所,靠近後開對應模態面板)兩種,皆為可選欄位。
-// 切換由 mapUtils 的通道關口處理。
+// config.AREA_MAPS 的靜態字元格(不進 GameState.tiles),且動作有「採集」(森林的 gatherNodes)、
+// 「建物」(城鎮的 buildings,如勞力仲介所,靠近後開對應模態面板)與「對話」(任務村的 npcs,
+// 靠近後交給 QuestSystem 開對話)三種,皆為可選欄位。切換由 mapUtils 的通道關口處理。
 import { TILE, REACH, COLORS, AREA_MAPS, ITEMS } from '../config.js';
 import { GameState } from '../state/GameState.js';
 import { SaveManager } from '../state/SaveManager.js';
 import { InventorySystem, itemName } from '../systems/InventorySystem.js';
+import { QuestSystem } from '../systems/QuestSystem.js';
 import { Runtime } from '../runtime.js';
 import { setupWorldCamera, transitionTo, portalAt } from '../mapUtils.js';
 import Player from '../entities/Player.js';
+import NPC from '../entities/NPC.js';
 
 // 建物 kind → 要開啟的模態場景 key。
 const BUILDING_SCENE = { agency: 'HireScene' };
@@ -35,6 +37,8 @@ export default class AreaScene extends Phaser.Scene {
     this.drawTerrain();
     this.drawNodes();
     this.drawBuildings();
+
+    this.npcObjs = (this.def.npcs || []).map((n) => new NPC(this, 0, 0, n));
 
     const p = GameState.data.player;
     this.player = new Player(this, 0, 0, p.x, p.y, p.facing, (tx, ty) => this.solidAt(tx, ty));
@@ -61,6 +65,7 @@ export default class AreaScene extends Phaser.Scene {
     const c = this.cell(tx, ty);
     if (c === null) return true; // 界外
     if ((this.def.buildings || []).some((b) => b.x === tx && b.y === ty)) return true;
+    if ((this.def.npcs || []).some((n) => n.x === tx && n.y === ty)) return true;
     return this.def.solid.includes(c);
   }
 
@@ -99,6 +104,11 @@ export default class AreaScene extends Phaser.Scene {
     this.computeAction();
     this.drawHighlight();
     this.updateActionLabel();
+
+    // 任務 NPC 頭上「!」標記,依各自任務狀態即時更新(玩家可能在別的地圖拿到物品後才回來交付)。
+    (this.def.npcs || []).forEach((n, i) => {
+      this.npcObjs[i].setMarker(QuestSystem.hasMarker(GameState.data, n.id));
+    });
   }
 
   // 在 REACH 內找最近的目標:「已重生採集點」或「建物」(如勞力仲介所)。
@@ -129,6 +139,17 @@ export default class AreaScene extends Phaser.Scene {
         best = { kind: b.kind, x: b.x, y: b.y };
       }
     }
+    for (const n of this.def.npcs || []) {
+      const cx = n.x * TILE + TILE / 2;
+      const cy = n.y * TILE + TILE / 2;
+      const dx = this.player.x - cx;
+      const dy = this.player.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= bestD2) {
+        bestD2 = d2;
+        best = { kind: 'npc', x: n.x, y: n.y, npcId: n.id };
+      }
+    }
     this.action = best;
   }
 
@@ -148,6 +169,11 @@ export default class AreaScene extends Phaser.Scene {
       this.flashGather(n, qty);
       this.action = null;
       this.drawNodes();
+      return;
+    }
+    if (this.action.kind === 'npc') {
+      const d = QuestSystem.talk(GameState.data, this.action.npcId);
+      ui.startDialog(d.lines, d.onEnd);
       return;
     }
     const sceneKey = BUILDING_SCENE[this.action.kind];
@@ -178,7 +204,7 @@ export default class AreaScene extends Phaser.Scene {
       return;
     }
     if (this.action) {
-      const LABEL = { gather: '採集', agency: '仲介所' };
+      const LABEL = { gather: '採集', agency: '仲介所', npc: '對話' };
       Runtime.actionLabel = LABEL[this.action.kind] || '互動';
       Runtime.actionEnabled = true;
       return;
